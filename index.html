@@ -37,7 +37,7 @@
     const defaultConfig = {
       language: 'zh-CN',
       gasUrl: '',
-      pauseDuration: 1500, // 新增：断句毫秒数，默认 1.5 秒
+      pauseDuration: 1500, // 断句毫秒数
       
       trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
       trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -121,7 +121,8 @@
       // --- Refs ---
       const recognitionRef = useRef(null);
       const scrollRef = useRef(null);
-      const silenceTimerRef = useRef(null); // 新增：用于跟踪语音停顿的定时器
+      const silenceTimerRef = useRef(null);
+      const interimTextRef = useRef(''); // 核心修复：用于缓存当前的临时句子
       
       // 使用 Ref 追踪最新状态以供异步事件使用
       const stateRef = useRef({ 
@@ -164,6 +165,42 @@
         }
       };
 
+      // --- 核心：提取手动提交文字并翻译的逻辑 ---
+      const commitText = async (text) => {
+        const trimmedText = text.trim();
+        if (!trimmedText) return;
+
+        const itemId = Date.now() + Math.random().toString();
+        
+        setHistory((prev) => [
+          ...prev, 
+          { 
+            id: itemId, 
+            original: trimmedText, 
+            t1: stateRef.current.trans1Enabled ? '...' : '', 
+            t2: stateRef.current.trans2Enabled ? '...' : '' 
+          }
+        ]);
+
+        setCurrentTranscript('');
+
+        const t1Promise = stateRef.current.trans1Enabled 
+          ? fetchTranslation(trimmedText, stateRef.current.trans1Lang) 
+          : Promise.resolve('');
+        
+        const t2Promise = stateRef.current.trans2Enabled 
+          ? fetchTranslation(trimmedText, stateRef.current.trans2Lang) 
+          : Promise.resolve('');
+
+        const [res1, res2] = await Promise.all([t1Promise, t2Promise]);
+
+        setHistory((prev) => 
+          prev.map(item => 
+            item.id === itemId ? { ...item, t1: res1, t2: res2 } : item
+          )
+        );
+      };
+
       // --- 初始化语音识别 ---
       useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -177,7 +214,7 @@
         recognition.interimResults = true;
         recognitionRef.current = recognition;
 
-        recognition.onresult = async (event) => {
+        recognition.onresult = (event) => {
           // 清除之前的停顿定时器
           if (silenceTimerRef.current) {
             clearTimeout(silenceTimerRef.current);
@@ -195,52 +232,34 @@
           }
 
           if (final) {
-            const text = final.trim();
-            if (!text) return;
+            interimTextRef.current = '';
+            commitText(final);
+          } 
 
-            const itemId = Date.now() + Math.random().toString();
-            
-            setHistory((prev) => [
-              ...prev, 
-              { 
-                id: itemId, 
-                original: text, 
-                t1: stateRef.current.trans1Enabled ? '...' : '', 
-                t2: stateRef.current.trans2Enabled ? '...' : '' 
-              }
-            ]);
-
-            const t1Promise = stateRef.current.trans1Enabled 
-              ? fetchTranslation(text, stateRef.current.trans1Lang) 
-              : Promise.resolve('');
-            
-            const t2Promise = stateRef.current.trans2Enabled 
-              ? fetchTranslation(text, stateRef.current.trans2Lang) 
-              : Promise.resolve('');
-
-            const [res1, res2] = await Promise.all([t1Promise, t2Promise]);
-
-            setHistory((prev) => 
-              prev.map(item => 
-                item.id === itemId ? { ...item, t1: res1, t2: res2 } : item
-              )
-            );
-          }
-          
+          // 将临时的识别内容存入缓存并更新UI
+          interimTextRef.current = interim;
           setCurrentTranscript(interim);
 
-          // 新增：如果当前有临时识别的文本，则启动毫秒断句定时器
+          // 核心修复：手动介入处理毫秒级断句
           if (interim && stateRef.current.pauseDuration > 0) {
             silenceTimerRef.current = setTimeout(() => {
-              if (recognitionRef.current && stateRef.current.isListening) {
-                // 强制停止当前识别，这会让浏览器主动触发一个 isFinal: true 的最终结果，随后 onend 会自动重启它
-                recognitionRef.current.stop();
+              // 定时器触发时，如果还在监听状态，且有临时内容
+              if (recognitionRef.current && stateRef.current.isListening && interimTextRef.current) {
+                const textToCommit = interimTextRef.current;
+                interimTextRef.current = ''; // 立即清空缓存
+                
+                // 手动把这一半句话记录并开始翻译
+                commitText(textToCommit);
+                
+                // 使用 abort 瞬间切断并清空浏览器内置语音引擎的缓存，这会触发 onend 并在 300ms 后重新启动
+                recognitionRef.current.abort();
               }
             }, stateRef.current.pauseDuration);
           }
         };
 
         recognition.onerror = (event) => {
+          // abort 是我们为了强制断句主动触发的，无需警告
           if (event.error === 'no-speech' || event.error === 'aborted') {
             return;
           }
@@ -253,6 +272,7 @@
         };
 
         recognition.onend = () => {
+          // 引擎停止后自动重启
           if (stateRef.current.isListening) {
             setTimeout(() => {
               try {
@@ -297,6 +317,7 @@
         } else {
           recognitionRef.current.stop();
           setCurrentTranscript('');
+          interimTextRef.current = '';
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         }
       };
@@ -395,7 +416,7 @@
                   <i className="ph-bold ph-sliders text-xl"></i>控制面板
                 </h2>
                 <div className="flex items-center gap-1">
-                  {/* 导入配置按钮：换成打开文件夹图标 */}
+                  {/* 导入配置按钮 */}
                   <div className="relative group flex items-center">
                     <label className="text-gray-500 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors block">
                       <i className="ph-bold ph-folder-open text-lg block"></i>
@@ -406,7 +427,7 @@
                     </div>
                   </div>
                   
-                  {/* 导出配置按钮：换成软盘/保存图标 */}
+                  {/* 导出配置按钮 */}
                   <div className="relative group flex items-center">
                     <button onClick={handleExport} className="text-gray-500 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors">
                       <i className="ph-bold ph-floppy-disk text-lg block"></i>
