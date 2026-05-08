@@ -77,15 +77,28 @@
         setConfig(prev => ({ ...prev, [key]: value }));
       };
 
-      // --- 导入与导出配置 ---
+      // --- 导入与导出配置 (修复版) ---
       const handleExport = () => {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
-        const downloadAnchorNode = document.createElement('a');
-        downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", "subtitle_settings.json");
-        document.body.appendChild(downloadAnchorNode);
-        downloadAnchorNode.click();
-        downloadAnchorNode.remove();
+        try {
+          // 使用更稳定的 Blob 方法替代 data URI
+          const jsonString = JSON.stringify(config, null, 2);
+          const blob = new Blob([jsonString], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          
+          const downloadAnchorNode = document.createElement('a');
+          downloadAnchorNode.href = url;
+          downloadAnchorNode.download = "subtitle_settings.json";
+          
+          document.body.appendChild(downloadAnchorNode);
+          downloadAnchorNode.click();
+          
+          // 清理 DOM 和 URL 内存
+          document.body.removeChild(downloadAnchorNode);
+          URL.revokeObjectURL(url);
+        } catch (error) {
+          console.error("导出失败:", error);
+          alert("导出配置失败，请检查浏览器权限。");
+        }
       };
 
       const handleImport = (event) => {
@@ -98,7 +111,8 @@
             setConfig(prev => ({ ...prev, ...importedConfig }));
             alert("配置导入成功！");
           } catch (error) {
-            alert("导入失败，文件格式不正确。");
+            console.error("导入失败:", error);
+            alert("导入失败，文件格式不正确或已损坏。");
           }
         };
         reader.readAsText(file);
