@@ -25,6 +25,12 @@
     .hide-scrollbar::-webkit-scrollbar { width: 0px; background: transparent; }
     .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
     body { margin: 0; padding: 0; overflow: hidden; }
+
+    /* 移动端安全区域与适配 */
+    .safe-top { top: max(16px, env(safe-area-inset-top)); }
+    .safe-left { left: max(16px, env(safe-area-inset-left)); }
+    .settings-top { top: max(76px, calc(env(safe-area-inset-top) + 60px)); }
+    .safe-pb { padding-bottom: max(48px, env(safe-area-inset-bottom)); }
   </style>
 </head>
 <body>
@@ -382,12 +388,12 @@
 
       return (
         <div 
-          className="relative w-full h-screen flex flex-col overflow-hidden font-sans"
+          className="relative w-full h-[100dvh] flex flex-col overflow-hidden font-sans"
           style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
         >
           {/* 顶部控制栏 */}
           {!obsMode && (
-            <div className="absolute top-4 left-4 z-50 flex flex-wrap gap-2">
+            <div className="absolute safe-top safe-left right-4 z-50 flex flex-wrap gap-2">
               <button
                 onClick={toggleListening}
                 className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold shadow-lg transition-colors ${
@@ -397,6 +403,24 @@
                 <i className={`ph-bold text-lg ${isListening ? 'ph-microphone-slash' : 'ph-microphone'}`}></i>
                 {isListening ? '停止识别' : '开始识别'}
               </button>
+
+              {/* 新增：快捷切换语种下拉框 */}
+              <div className="flex items-center bg-white/90 rounded-full px-3 shadow-lg hover:bg-white transition-colors border border-gray-100">
+                <i className="ph-bold ph-translate text-gray-500 mr-1.5 text-lg"></i>
+                <select 
+                  value={config.language} 
+                  onChange={(e) => updateConfig('language', e.target.value)}
+                  className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer py-2 appearance-none"
+                  title="快捷切换您的说话语言"
+                >
+                  <option value="zh-CN">🇨🇳 中文</option>
+                  <option value="en-US">🇺🇸 English</option>
+                  <option value="ja-JP">🇯🇵 日本語</option>
+                  <option value="ko-KR">🇰🇷 한국어</option>
+                  <option value="zh-TW">🇹🇼 繁體</option>
+                </select>
+                <i className="ph-bold ph-caret-down text-gray-400 ml-1 text-xs pointer-events-none"></i>
+              </div>
               
               <button
                 onClick={() => setShowSettings(!showSettings)}
@@ -435,7 +459,7 @@
 
           {/* 设置面板 */}
           {!obsMode && showSettings && (
-            <div className="absolute top-20 left-4 z-40 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 w-96 flex flex-col" style={{ maxHeight: 'calc(100vh - 100px)' }}>
+            <div className="absolute settings-top safe-left z-40 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 w-96 max-w-[calc(100vw-32px)] flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top) - 100px)' }}>
               
               <div className="flex justify-between items-center p-4 border-b border-gray-200 shrink-0">
                 <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
@@ -687,8 +711,8 @@
           )}
 
           {/* 字幕显示区域 */}
-          <div className="flex-1 w-full overflow-y-auto px-8 flex flex-col items-center hide-scrollbar">
-            <div className={`w-full flex flex-col gap-6 max-w-6xl pt-24 pb-12 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+          <div className="flex-1 w-full overflow-y-auto px-4 sm:px-8 flex flex-col items-center hide-scrollbar safe-pb">
+            <div className={`w-full flex flex-col gap-6 max-w-6xl pt-32 sm:pt-24 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
               
               {history.length === 0 && !currentTranscript && (
                 <div className="text-gray-500 mt-10 opacity-80 font-bold" style={{ fontSize: '24px' }}>
