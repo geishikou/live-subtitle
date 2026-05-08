@@ -37,6 +37,7 @@
     const defaultConfig = {
       language: 'zh-CN',
       gasUrl: '',
+      pauseDuration: 1500, // 新增：断句毫秒数，默认 1.5 秒
       
       trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
       trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -77,10 +78,9 @@
         setConfig(prev => ({ ...prev, [key]: value }));
       };
 
-      // --- 导入与导出配置 (修复版) ---
+      // --- 导入与导出配置 ---
       const handleExport = () => {
         try {
-          // 使用更稳定的 Blob 方法替代 data URI
           const jsonString = JSON.stringify(config, null, 2);
           const blob = new Blob([jsonString], { type: "application/json" });
           const url = URL.createObjectURL(blob);
@@ -92,7 +92,6 @@
           document.body.appendChild(downloadAnchorNode);
           downloadAnchorNode.click();
           
-          // 清理 DOM 和 URL 内存
           document.body.removeChild(downloadAnchorNode);
           URL.revokeObjectURL(url);
         } catch (error) {
@@ -116,19 +115,20 @@
           }
         };
         reader.readAsText(file);
-        // 清空 input 值，允许重复导入同一个文件
         event.target.value = '';
       };
 
       // --- Refs ---
       const recognitionRef = useRef(null);
       const scrollRef = useRef(null);
+      const silenceTimerRef = useRef(null); // 新增：用于跟踪语音停顿的定时器
       
       // 使用 Ref 追踪最新状态以供异步事件使用
       const stateRef = useRef({ 
         isListening, 
         gasUrl: config.gasUrl, 
         language: config.language,
+        pauseDuration: config.pauseDuration,
         trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
         trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
       });
@@ -138,10 +138,11 @@
           isListening, 
           gasUrl: config.gasUrl, 
           language: config.language,
+          pauseDuration: config.pauseDuration,
           trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
           trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
         };
-      }, [isListening, config.gasUrl, config.language, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
+      }, [isListening, config.gasUrl, config.language, config.pauseDuration, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
 
       // --- 翻译 API 调用 (Google Apps Script) ---
       const fetchTranslation = async (text, targetLang) => {
@@ -177,6 +178,11 @@
         recognitionRef.current = recognition;
 
         recognition.onresult = async (event) => {
+          // 清除之前的停顿定时器
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+
           let interim = '';
           let final = '';
 
@@ -222,11 +228,20 @@
           }
           
           setCurrentTranscript(interim);
+
+          // 新增：如果当前有临时识别的文本，则启动毫秒断句定时器
+          if (interim && stateRef.current.pauseDuration > 0) {
+            silenceTimerRef.current = setTimeout(() => {
+              if (recognitionRef.current && stateRef.current.isListening) {
+                // 强制停止当前识别，这会让浏览器主动触发一个 isFinal: true 的最终结果，随后 onend 会自动重启它
+                recognitionRef.current.stop();
+              }
+            }, stateRef.current.pauseDuration);
+          }
         };
 
         recognition.onerror = (event) => {
           if (event.error === 'no-speech' || event.error === 'aborted') {
-            console.log(`Speech recognition silent abort: ${event.error}`);
             return;
           }
           console.error("Speech recognition error", event.error);
@@ -252,6 +267,9 @@
         return () => {
           if (recognitionRef.current) {
             recognitionRef.current.stop();
+          }
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
           }
         };
       }, []);
@@ -279,6 +297,7 @@
         } else {
           recognitionRef.current.stop();
           setCurrentTranscript('');
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         }
       };
 
@@ -376,24 +395,24 @@
                   <i className="ph-bold ph-sliders text-xl"></i>控制面板
                 </h2>
                 <div className="flex items-center gap-1">
-                  {/* 导入配置按钮 */}
+                  {/* 导入配置按钮：换成打开文件夹图标 */}
                   <div className="relative group flex items-center">
                     <label className="text-gray-500 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors block">
-                      <i className="ph-bold ph-upload-simple text-lg block"></i>
+                      <i className="ph-bold ph-folder-open text-lg block"></i>
                       <input type="file" accept=".json" onChange={handleImport} className="hidden" />
                     </label>
                     <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
-                      导入设置
+                      导入设置 (读取JSON)
                     </div>
                   </div>
                   
-                  {/* 导出配置按钮 */}
+                  {/* 导出配置按钮：换成软盘/保存图标 */}
                   <div className="relative group flex items-center">
                     <button onClick={handleExport} className="text-gray-500 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors">
-                      <i className="ph-bold ph-download-simple text-lg block"></i>
+                      <i className="ph-bold ph-floppy-disk text-lg block"></i>
                     </button>
                     <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
-                      导出设置
+                      导出设置 (保存为JSON)
                     </div>
                   </div>
                   
@@ -426,7 +445,23 @@
                       <option value="ko-KR">한국어</option>
                     </select>
                   </div>
-                  <div className="space-y-2">
+
+                  {/* 新增：断句毫秒数设置 */}
+                  <div className="space-y-2 pt-2 border-t border-gray-100">
+                    <label className="flex justify-between text-xs font-bold text-gray-700">
+                      <span>断句时长 (自动切分)</span>
+                      <span className="text-blue-600">{config.pauseDuration} ms</span>
+                    </label>
+                    <input 
+                      type="range" min="500" max="5000" step="100" 
+                      value={config.pauseDuration} 
+                      onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
+                      className="w-full accent-blue-500" 
+                    />
+                    <p className="text-[10px] text-gray-500 leading-tight">当您说话停顿超过此数值时，系统将强制完成一句话并生成字幕与翻译。</p>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-gray-100">
                     <label className="block text-xs font-bold text-gray-700">Google Apps Script (GAS) URL</label>
                     <input 
                       type="text" 
@@ -435,7 +470,6 @@
                       onChange={(e) => updateConfig('gasUrl', e.target.value)}
                       className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-gray-50"
                     />
-                    <p className="text-[10px] text-gray-500 leading-tight">请填入您部署的 GAS Web App URL。这与 jimakuChan 采用的免费翻译方案完全一致。</p>
                   </div>
                 </div>
 
