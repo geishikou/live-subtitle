@@ -122,7 +122,8 @@
       const recognitionRef = useRef(null);
       const scrollRef = useRef(null);
       const silenceTimerRef = useRef(null);
-      const interimTextRef = useRef(''); // 核心修复：用于缓存当前的临时句子
+      const interimTextRef = useRef(''); // 用于缓存当前的临时句子
+      const pendingSentenceRef = useRef(''); // 核心修复：用于跨会话拼接被浏览器强行切断的半句话
       
       // 使用 Ref 追踪最新状态以供异步事件使用
       const stateRef = useRef({ 
@@ -220,38 +221,43 @@
             clearTimeout(silenceTimerRef.current);
           }
 
-          let interim = '';
-          let final = '';
+          let currentInterim = '';
+          let currentFinals = '';
 
+          // 核心修复：分离浏览器的自动结果，将其统一存入我们自己的缓冲区
           for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
-              final += event.results[i][0].transcript;
+              currentFinals += event.results[i][0].transcript;
             } else {
-              interim += event.results[i][0].transcript;
+              currentInterim += event.results[i][0].transcript;
             }
           }
 
-          if (final) {
-            interimTextRef.current = '';
-            commitText(final);
-          } 
+          // 如果浏览器强行输出了最终结果，将其拼接到我们的未提交句子缓存中
+          if (currentFinals) {
+            pendingSentenceRef.current += currentFinals;
+          }
+          interimTextRef.current = currentInterim;
 
-          // 将临时的识别内容存入缓存并更新UI
-          interimTextRef.current = interim;
-          setCurrentTranscript(interim);
+          // 将缓存中所有未提交的内容统一展示在屏幕上
+          const displayInterim = pendingSentenceRef.current + currentInterim;
+          setCurrentTranscript(displayInterim);
 
-          // 核心修复：手动介入处理毫秒级断句
-          if (interim && stateRef.current.pauseDuration > 0) {
+          // 核心修复：只根据用户设定的准确毫秒数来触发生效
+          if (displayInterim.trim() && stateRef.current.pauseDuration > 0) {
             silenceTimerRef.current = setTimeout(() => {
-              // 定时器触发时，如果还在监听状态，且有临时内容
-              if (recognitionRef.current && stateRef.current.isListening && interimTextRef.current) {
-                const textToCommit = interimTextRef.current;
-                interimTextRef.current = ''; // 立即清空缓存
+              if (recognitionRef.current && stateRef.current.isListening) {
+                // 时间到了！将缓冲区的内容合并提取出来
+                const textToCommit = pendingSentenceRef.current + interimTextRef.current;
                 
-                // 手动把这一半句话记录并开始翻译
+                // 彻底清空缓冲区
+                pendingSentenceRef.current = '';
+                interimTextRef.current = '';
+                
+                // 手动提交并翻译这句完整的话
                 commitText(textToCommit);
                 
-                // 使用 abort 瞬间切断并清空浏览器内置语音引擎的缓存，这会触发 onend 并在 300ms 后重新启动
+                // 使用 abort() 强制打断浏览器内部的识别流，避免它继续向上追加，并在 onend 中无缝重启
                 recognitionRef.current.abort();
               }
             }, stateRef.current.pauseDuration);
@@ -259,7 +265,7 @@
         };
 
         recognition.onerror = (event) => {
-          // abort 是我们为了强制断句主动触发的，无需警告
+          // abort 是我们为了强制精准断句主动触发的，无需警告
           if (event.error === 'no-speech' || event.error === 'aborted') {
             return;
           }
@@ -272,7 +278,7 @@
         };
 
         recognition.onend = () => {
-          // 引擎停止后自动重启
+          // 引擎停止后无缝自动重启
           if (stateRef.current.isListening) {
             setTimeout(() => {
               try {
@@ -316,8 +322,16 @@
           } catch (e) {}
         } else {
           recognitionRef.current.stop();
-          setCurrentTranscript('');
+          
+          // 关闭识别时，提交所有残留在缓冲区的文本
+          const leftover = pendingSentenceRef.current + interimTextRef.current;
+          if (leftover.trim()) {
+            commitText(leftover);
+          }
+          
+          pendingSentenceRef.current = '';
           interimTextRef.current = '';
+          setCurrentTranscript('');
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         }
       };
@@ -467,7 +481,7 @@
                     </select>
                   </div>
 
-                  {/* 新增：断句毫秒数设置 */}
+                  {/* 断句毫秒数设置 */}
                   <div className="space-y-2 pt-2 border-t border-gray-100">
                     <label className="flex justify-between text-xs font-bold text-gray-700">
                       <span>断句时长 (自动切分)</span>
