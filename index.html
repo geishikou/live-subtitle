@@ -43,7 +43,6 @@
     const defaultConfig = {
       language: 'zh-CN',
       gasUrl: '',
-      pauseDuration: 1500, // 断句毫秒数
       
       trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
       trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -127,19 +126,12 @@
       // --- Refs ---
       const recognitionRef = useRef(null);
       const scrollRef = useRef(null);
-      const silenceTimerRef = useRef(null);
-      
-      // 核心修复缓存系统
-      const interimTextRef = useRef(''); // 缓存临时句子
-      const pendingSentenceRef = useRef(''); // 缓存跨会话拼接的完整句子
-      const commitOnNextEndRef = useRef(false); // 标记是否需要在引擎重启时强制提交
       
       // 使用 Ref 追踪最新状态以供异步事件使用
       const stateRef = useRef({ 
         isListening, 
         gasUrl: config.gasUrl, 
         language: config.language,
-        pauseDuration: config.pauseDuration,
         trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
         trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
       });
@@ -149,11 +141,10 @@
           isListening, 
           gasUrl: config.gasUrl, 
           language: config.language,
-          pauseDuration: config.pauseDuration,
           trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
           trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
         };
-      }, [isListening, config.gasUrl, config.language, config.pauseDuration, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
+      }, [isListening, config.gasUrl, config.language, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
 
       // --- 翻译 API 调用 (Google Apps Script) ---
       const fetchTranslation = async (text, targetLang) => {
@@ -225,10 +216,6 @@
         recognitionRef.current = recognition;
 
         recognition.onresult = (event) => {
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-          }
-
           let currentInterim = '';
           let currentFinals = '';
 
@@ -241,36 +228,10 @@
           }
 
           if (currentFinals) {
-            pendingSentenceRef.current += currentFinals;
+            commitText(currentFinals);
           }
-          interimTextRef.current = currentInterim;
 
-          const displayInterim = pendingSentenceRef.current + currentInterim;
-          setCurrentTranscript(displayInterim);
-
-          // 核心修复逻辑：基于时间强制执行
-          if (displayInterim.trim() && stateRef.current.pauseDuration > 0) {
-            silenceTimerRef.current = setTimeout(() => {
-              if (!stateRef.current.isListening) return;
-
-              const latestText = pendingSentenceRef.current + interimTextRef.current;
-              if (!latestText.trim()) return;
-
-              if (interimTextRef.current) {
-                // 有未完成的字词，调用 stop 让引擎安全执行最后一次纠错
-                commitOnNextEndRef.current = true;
-                recognitionRef.current.stop(); 
-              } else {
-                // 全部都是确定词汇，安全直接提交
-                if (pendingSentenceRef.current.trim()) {
-                  commitText(pendingSentenceRef.current);
-                  pendingSentenceRef.current = '';
-                  interimTextRef.current = '';
-                  setCurrentTranscript('');
-                }
-              }
-            }, stateRef.current.pauseDuration);
-          }
+          setCurrentTranscript(currentInterim);
         };
 
         recognition.onerror = (event) => {
@@ -286,17 +247,7 @@
         };
 
         recognition.onend = () => {
-          // 处理需要在引擎重启时强制提交的任务，保证 100% 纠错完成
-          if (commitOnNextEndRef.current) {
-            if (pendingSentenceRef.current.trim()) {
-              commitText(pendingSentenceRef.current);
-              pendingSentenceRef.current = '';
-              interimTextRef.current = '';
-              setCurrentTranscript('');
-            }
-            commitOnNextEndRef.current = false;
-          }
-
+          // 引擎原生静音断开后无缝自动重启
           if (stateRef.current.isListening) {
             setTimeout(() => {
               try {
@@ -311,9 +262,6 @@
         return () => {
           if (recognitionRef.current) {
             recognitionRef.current.stop();
-          }
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
           }
         };
       }, []);
@@ -340,17 +288,7 @@
           } catch (e) {}
         } else {
           recognitionRef.current.stop();
-          
-          const leftover = pendingSentenceRef.current + interimTextRef.current;
-          if (leftover.trim()) {
-            commitText(leftover);
-          }
-          
-          pendingSentenceRef.current = '';
-          interimTextRef.current = '';
-          commitOnNextEndRef.current = false;
           setCurrentTranscript('');
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         }
       };
 
@@ -404,7 +342,7 @@
                 {isListening ? '停止识别' : '开始识别'}
               </button>
 
-              {/* 新增：快捷切换语种下拉框 */}
+              {/* 快捷切换语种下拉框 */}
               <div className="flex items-center bg-white/90 rounded-full px-3 shadow-lg hover:bg-white transition-colors border border-gray-100">
                 <i className="ph-bold ph-translate text-gray-500 mr-1.5 text-lg"></i>
                 <select 
@@ -515,21 +453,6 @@
                       <option value="en-US">English (US)</option>
                       <option value="ko-KR">한국어</option>
                     </select>
-                  </div>
-
-                  {/* 断句毫秒数设置 */}
-                  <div className="space-y-2 pt-2 border-t border-gray-100">
-                    <label className="flex justify-between text-xs font-bold text-gray-700">
-                      <span>断句时长 (自动切分)</span>
-                      <span className="text-blue-600">{config.pauseDuration} ms</span>
-                    </label>
-                    <input 
-                      type="range" min="500" max="5000" step="100" 
-                      value={config.pauseDuration} 
-                      onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
-                      className="w-full accent-blue-500" 
-                    />
-                    <p className="text-[10px] text-gray-500 leading-tight">当您说话停顿超过此数值时，系统将强制完成一句话并生成字幕与翻译。</p>
                   </div>
 
                   <div className="space-y-2 pt-2 border-t border-gray-100">
