@@ -41,7 +41,7 @@
     const defaultConfig = {
       language: 'zh-CN',
       gasUrl: '',
-      maxInterimLength: 40, // 新增：单句最大字数限制
+      pauseDuration: 800, // 核心机制：呼吸停顿检测毫秒数，默认 800ms
       
       trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
       trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -59,7 +59,7 @@
       const [history, setHistory] = useState([]); // { id, original, t1, t2 }
       const [currentTranscript, setCurrentTranscript] = useState('');
 
-      // 新增：统一 UI 显示状态（true 为展开设置，false 为 OBS 纯净模式）
+      // 统一 UI 显示状态（true 为展开设置，false 为 OBS 纯净模式）
       const [showUI, setShowUI] = useState(true);
 
       // --- 统一配置管理 (支持本地存储) ---
@@ -125,13 +125,14 @@
       // --- Refs ---
       const recognitionRef = useRef(null);
       const scrollRef = useRef(null);
+      const silenceTimerRef = useRef(null); // 用于跟踪呼吸停顿的定时器
       
       // 使用 Ref 追踪最新状态以供异步事件使用
       const stateRef = useRef({ 
         isListening, 
         gasUrl: config.gasUrl, 
         language: config.language,
-        maxInterimLength: config.maxInterimLength,
+        pauseDuration: config.pauseDuration,
         trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
         trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
       });
@@ -141,11 +142,11 @@
           isListening, 
           gasUrl: config.gasUrl, 
           language: config.language,
-          maxInterimLength: config.maxInterimLength,
+          pauseDuration: config.pauseDuration,
           trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
           trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
         };
-      }, [isListening, config.gasUrl, config.language, config.maxInterimLength, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
+      }, [isListening, config.gasUrl, config.language, config.pauseDuration, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
 
       // --- 翻译 API 调用 (Google Apps Script) ---
       const fetchTranslation = async (text, targetLang) => {
@@ -217,6 +218,11 @@
         recognitionRef.current = recognition;
 
         recognition.onresult = (event) => {
+          // 每次监听到新的声音或文字变化，就清除之前的停顿倒计时
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+
           let currentInterim = '';
           let currentFinals = '';
 
@@ -234,21 +240,20 @@
 
           setCurrentTranscript(currentInterim);
 
-          // 核心更新：智能长句自动切分逻辑 (兼顾准确性与实时性)
-          if (currentInterim && stateRef.current.isListening) {
-            const isTooLong = currentInterim.length >= stateRef.current.maxInterimLength;
-            // 探测是否有结束语气的标点 (过滤掉逗号)
-            const hasSentenceEnd = /[。！？.!?]/.test(currentInterim);
-
-            // 当长度超标，或者出现明显断句标点(且非零碎单字)时，通知引擎立刻结算！
-            if (isTooLong || (hasSentenceEnd && currentInterim.length > 4)) {
-              try {
-                // stop 会让引擎立刻输出 isFinal 结果（保证纠错跑完），不会丢失音频
-                recognitionRef.current.stop();
-              } catch (e) {
-                // 忽略已在停止状态的报错
+          // 核心机制：呼吸停顿检测
+          // 如果存在临时文字，且设定的检测时间有效，重新开启倒计时
+          if (currentInterim && stateRef.current.isListening && stateRef.current.pauseDuration > 0) {
+            silenceTimerRef.current = setTimeout(() => {
+              // 如果在这个毫秒数内没有新的语音输入（倒计时顺利走完）
+              if (recognitionRef.current && stateRef.current.isListening) {
+                try {
+                  // 主动让引擎结算当前句子，保证上下文完整，不会切开半个词
+                  recognitionRef.current.stop();
+                } catch (e) {
+                  // 忽略报错
+                }
               }
-            }
+            }, stateRef.current.pauseDuration);
           }
         };
 
@@ -265,6 +270,7 @@
         };
 
         recognition.onend = () => {
+          // 如果是因为我们的断句 stop() 导致的结束，立即无缝重启
           if (stateRef.current.isListening) {
             setTimeout(() => {
               try {
@@ -272,13 +278,16 @@
                   recognitionRef.current.start();
                 }
               } catch (e) {}
-            }, 100);
+            }, 100); // 极短的延迟，保证无缝衔接
           }
         };
 
         return () => {
           if (recognitionRef.current) {
             recognitionRef.current.stop();
+          }
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
           }
         };
       }, []);
@@ -306,6 +315,9 @@
         } else {
           recognitionRef.current.stop();
           setCurrentTranscript('');
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
         }
       };
 
@@ -441,19 +453,19 @@
                       </select>
                     </div>
 
-                    {/* 新增：智能强制切分字符数 */}
+                    {/* 新增：呼吸停顿检测 */}
                     <div className="space-y-2 pt-2 border-t border-gray-200">
                       <label className="flex justify-between text-xs font-bold text-gray-700">
-                        <span>长句自动切分 (限制字数)</span>
-                        <span className="text-blue-600">{config.maxInterimLength} 字</span>
+                        <span>断句等待时间 (呼吸检测)</span>
+                        <span className="text-blue-600">{config.pauseDuration} ms</span>
                       </label>
                       <input 
-                        type="range" min="15" max="80" step="5" 
-                        value={config.maxInterimLength} 
-                        onChange={(e) => updateConfig('maxInterimLength', Number(e.target.value))} 
+                        type="range" min="400" max="2500" step="100" 
+                        value={config.pauseDuration} 
+                        onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
                         className="w-full accent-blue-500" 
                       />
-                      <p className="text-[10px] text-gray-500 leading-tight">当您连续说话过长，或者系统探测到句号等结束标点时，将自动立刻断句并翻译，避免长时间等待。</p>
+                      <p className="text-[10px] text-gray-500 leading-tight">通过检测您的短暂呼吸停顿进行完整意群断句。<br/>• 设得越小：翻译越快，但可能会把一句话拆碎。<br/>• 设得越大：句子越完整，但出字幕较慢。<br/>* 建议值：800ms ~ 1200ms</p>
                     </div>
 
                     <div className="space-y-2 pt-2 border-t border-gray-200">
