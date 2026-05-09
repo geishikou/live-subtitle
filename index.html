@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>实时滚动字幕与翻译 (增强定制版)</title>
+  <title>实时滚动字幕与翻译 (上下布局版)</title>
   
   <!-- 引入 React 和 ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -19,16 +19,14 @@
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
   <style>
-    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
     .hide-scrollbar::-webkit-scrollbar { width: 0px; background: transparent; }
     .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
     body { margin: 0; padding: 0; overflow: hidden; }
 
     /* 移动端安全区域与适配 */
-    .safe-top { top: max(16px, env(safe-area-inset-top)); }
-    .safe-left { left: max(16px, env(safe-area-inset-left)); }
     .safe-pt { padding-top: max(16px, env(safe-area-inset-top)); }
     .safe-pb { padding-bottom: max(48px, env(safe-area-inset-bottom)); }
   </style>
@@ -325,254 +323,17 @@
         'mt-auto mb-0';
 
       return (
-        <div className="flex w-full h-[100dvh] overflow-hidden font-sans bg-gray-100">
+        <div className="flex flex-col w-full h-[100dvh] overflow-hidden font-sans bg-gray-100">
           
-          {/* 左侧：设置面板 (桌面端侧边栏，移动端悬浮) */}
-          {!obsMode && showSettings && (
-            <div className="fixed md:relative top-0 left-0 z-50 md:z-40 w-96 max-w-[85vw] h-full flex-shrink-0 bg-white/95 backdrop-blur-md shadow-2xl border-r border-gray-200 flex flex-col transition-all">
-              <div className="flex justify-between items-center px-4 pb-4 safe-pt border-b border-gray-200 shrink-0">
-                <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                  <i className="ph-bold ph-sliders text-xl"></i>控制面板
-                </h2>
-                <div className="flex items-center gap-1">
-                  {/* 导入配置按钮 */}
-                  <div className="relative group flex items-center">
-                    <label className="text-gray-500 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors block">
-                      <i className="ph-bold ph-folder-open text-lg block"></i>
-                      <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-                    </label>
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
-                      导入设置 (读取JSON)
-                    </div>
-                  </div>
-                  
-                  {/* 导出配置按钮 */}
-                  <div className="relative group flex items-center">
-                    <button onClick={handleExport} className="text-gray-500 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors">
-                      <i className="ph-bold ph-floppy-disk text-lg block"></i>
-                    </button>
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
-                      导出设置 (保存为JSON)
-                    </div>
-                  </div>
-                  
-                  <div className="w-px h-5 bg-gray-300 mx-1"></div>
-                  
-                  {/* 关闭按钮 */}
-                  <div className="relative group flex items-center">
-                    <button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-800 p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
-                      <i className="ph-bold ph-x text-lg block"></i>
-                    </button>
-                    <div className="absolute top-full right-0 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
-                      关闭面板
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-6 safe-pb">
-                {/* 模块：语音与API */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">🎙️ 语音与翻译</h3>
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-gray-700">识别语言</label>
-                    <select value={config.language} onChange={(e) => updateConfig('language', e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-gray-50">
-                      <option value="zh-CN">中文 (简体)</option>
-                      <option value="zh-TW">中文 (繁體)</option>
-                      <option value="ja-JP">日本語</option>
-                      <option value="en-US">English (US)</option>
-                      <option value="ko-KR">한국어</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-gray-100">
-                    <label className="block text-xs font-bold text-gray-700">Google Apps Script (GAS) URL</label>
-                    <input 
-                      type="text" 
-                      placeholder="https://script.google.com/macros/s/..."
-                      value={config.gasUrl}
-                      onChange={(e) => updateConfig('gasUrl', e.target.value)}
-                      className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-gray-50"
-                    />
-                  </div>
-                </div>
-
-                {/* 模块：翻译目标 */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">🌍 多语言翻译</h3>
-                  
-                  {/* 翻译 1 */}
-                  <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-blue-800">
-                      <input type="checkbox" checked={config.trans1Enabled} onChange={(e) => updateConfig('trans1Enabled', e.target.checked)} className="rounded" />
-                      开启翻译 1
-                    </label>
-                    {config.trans1Enabled && (
-                      <div className="grid grid-cols-3 gap-2 mt-2">
-                        <select value={config.trans1Lang} onChange={(e) => updateConfig('trans1Lang', e.target.value)} className="col-span-3 p-1.5 text-xs border border-blue-200 rounded outline-none">
-                          <option value="en">English</option>
-                          <option value="ja">日本語</option>
-                          <option value="zh-CN">中文(简体)</option>
-                          <option value="zh-TW">中文(繁體)</option>
-                          <option value="ko">한국어</option>
-                        </select>
-                        <div className="col-span-2 flex items-center gap-1">
-                          <span className="text-[10px] text-gray-600 whitespace-nowrap">大小 ({config.trans1Size}px)</span>
-                          <input type="range" min="12" max="80" value={config.trans1Size} onChange={(e) => updateConfig('trans1Size', Number(e.target.value))} className="w-full" />
-                        </div>
-                        <input type="color" value={config.trans1Color} onChange={(e) => updateConfig('trans1Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 翻译 2 */}
-                  <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-purple-800">
-                      <input type="checkbox" checked={config.trans2Enabled} onChange={(e) => updateConfig('trans2Enabled', e.target.checked)} className="rounded" />
-                      开启翻译 2
-                    </label>
-                    {config.trans2Enabled && (
-                      <div className="grid grid-cols-3 gap-2 mt-2">
-                        <select value={config.trans2Lang} onChange={(e) => updateConfig('trans2Lang', e.target.value)} className="col-span-3 p-1.5 text-xs border border-purple-200 rounded outline-none">
-                          <option value="en">English</option>
-                          <option value="ja">日本語</option>
-                          <option value="zh-CN">中文(简体)</option>
-                          <option value="zh-TW">中文(繁體)</option>
-                          <option value="ko">한국어</option>
-                        </select>
-                        <div className="col-span-2 flex items-center gap-1">
-                          <span className="text-[10px] text-gray-600 whitespace-nowrap">大小 ({config.trans2Size}px)</span>
-                          <input type="range" min="12" max="80" value={config.trans2Size} onChange={(e) => updateConfig('trans2Size', Number(e.target.value))} className="w-full" />
-                        </div>
-                        <input type="color" value={config.trans2Color} onChange={(e) => updateConfig('trans2Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1" />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 模块：排版与布局 */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">🅰️ 字体与排版</h3>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-600">字体 (Font Family)</label>
-                      <select value={config.fontFamily} onChange={(e) => updateConfig('fontFamily', e.target.value)} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none">
-                        <option value="sans-serif">无衬线体 (黑体)</option>
-                        <option value="serif">衬线体 (宋体)</option>
-                        <option value="monospace">等宽字体</option>
-                        <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
-                        <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-600">字重 (Font Weight)</label>
-                      <select value={config.fontWeight} onChange={(e) => updateConfig('fontWeight', Number(e.target.value))} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none">
-                        <option value="400">常规 (Normal)</option>
-                        <option value="700">粗体 (Bold)</option>
-                        <option value="900">黑体 (Black)</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-600">水平对齐</label>
-                      <div className="flex border border-gray-300 rounded overflow-hidden">
-                        {['left', 'center', 'right'].map(align => (
-                          <button 
-                            key={`h-${align}`} onClick={() => updateConfig('textAlign', align)}
-                            className={`flex-1 py-1 text-lg flex justify-center items-center ${config.textAlign === align ? 'bg-gray-200 text-black' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
-                            title={`水平居${align === 'left' ? '左' : align === 'right' ? '右' : '中'}`}
-                          >
-                            <i className={`ph ph-text-align-${align}`}></i>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-600">垂直对齐</label>
-                      <div className="flex border border-gray-300 rounded overflow-hidden">
-                        {[
-                          { val: 'top', icon: 'ph-align-top' }, 
-                          { val: 'center', icon: 'ph-align-center-vertical' }, 
-                          { val: 'bottom', icon: 'ph-align-bottom' }
-                        ].map(align => (
-                          <button 
-                            key={`v-${align.val}`} onClick={() => updateConfig('verticalAlign', align.val)}
-                            className={`flex-1 py-1 text-lg flex justify-center items-center ${config.verticalAlign === align.val ? 'bg-gray-200 text-black' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
-                            title={`垂直居${align.val === 'top' ? '上' : align.val === 'bottom' ? '下' : '中'}`}
-                          >
-                            <i className={`ph ${align.icon}`}></i>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-600">行高 ({config.lineHeight})</label>
-                      <input type="range" min="1" max="2.5" step="0.1" value={config.lineHeight} onChange={(e) => updateConfig('lineHeight', Number(e.target.value))} className="w-full" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-600">字间距 ({config.letterSpacing}px)</label>
-                      <input type="range" min="-5" max="20" step="1" value={config.letterSpacing} onChange={(e) => updateConfig('letterSpacing', Number(e.target.value))} className="w-full" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 模块：主字幕颜色 */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">🎨 主字幕颜色</h3>
-                  
-                  <div className="space-y-1">
-                    <label className="flex justify-between text-xs font-bold text-gray-600">
-                      <span>主字幕大小</span><span>{config.mainFontSize}px</span>
-                    </label>
-                    <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value))} className="w-full" />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="block text-xs text-gray-600">填充颜色</label>
-                      <input type="color" value={config.mainFontColor} onChange={(e) => updateConfig('mainFontColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs text-gray-600">描边颜色</label>
-                      <input type="color" value={config.strokeColor} onChange={(e) => updateConfig('strokeColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="flex justify-between text-xs text-gray-600">
-                      <span>描边粗细</span><span>{config.strokeWidth}px</span>
-                    </label>
-                    <input type="range" min="0" max="20" value={config.strokeWidth} onChange={(e) => updateConfig('strokeWidth', Number(e.target.value))} className="w-full" />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
-                    <div className="space-y-1">
-                      <label className="block text-xs text-gray-600">绿幕背景颜色</label>
-                      <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs text-gray-600">背景不透明度(%)</label>
-                      <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 右侧：主字幕与控制区域 */}
-          <div 
-            className="flex-1 relative flex flex-col h-full overflow-hidden transition-all duration-300"
-            style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
-          >
-            {/* 顶部控制栏 */}
-            {!obsMode && (
-              <div className="absolute safe-top safe-left right-4 z-40 flex flex-wrap gap-2">
+          {/* 上半部分：控制栏与设置面板 (上下布局核心) */}
+          {!obsMode && (
+            <div className="flex flex-col shrink-0 w-full z-40 bg-white shadow-md transition-all relative">
+              
+              {/* 控制工具栏 */}
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3 safe-pt border-b border-gray-200">
                 <button
                   onClick={toggleListening}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold shadow-lg transition-colors ${
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold shadow-md transition-colors ${
                     isListening ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'
                   }`}
                 >
@@ -581,12 +342,12 @@
                 </button>
 
                 {/* 快捷切换语种下拉框 */}
-                <div className="flex items-center bg-white/90 rounded-full px-3 shadow-lg hover:bg-white transition-colors border border-gray-100">
-                  <i className="ph-bold ph-translate text-gray-500 mr-1.5 text-lg"></i>
+                <div className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-full px-4 shadow-inner transition-colors border border-gray-200">
+                  <i className="ph-bold ph-translate text-gray-500 mr-2 text-lg"></i>
                   <select 
                     value={config.language} 
                     onChange={(e) => updateConfig('language', e.target.value)}
-                    className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer py-2 appearance-none"
+                    className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer py-2.5 appearance-none"
                     title="快捷切换您的说话语言"
                   >
                     <option value="zh-CN">🇨🇳 中文</option>
@@ -595,51 +356,273 @@
                     <option value="ko-KR">🇰🇷 한국어</option>
                     <option value="zh-TW">🇹🇼 繁體</option>
                   </select>
-                  <i className="ph-bold ph-caret-down text-gray-400 ml-1 text-xs pointer-events-none"></i>
+                  <i className="ph-bold ph-caret-down text-gray-400 ml-2 text-xs pointer-events-none"></i>
                 </div>
                 
                 <button
                   onClick={() => setShowSettings(!showSettings)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full shadow-lg font-bold transition-colors ${showSettings ? 'bg-gray-800 text-white hover:bg-gray-900' : 'bg-white/90 text-gray-800 hover:bg-white'}`}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-full shadow-md font-bold transition-colors ${showSettings ? 'bg-gray-800 text-white hover:bg-gray-900' : 'bg-white text-gray-800 border border-gray-200 hover:bg-gray-50'}`}
                 >
-                  <i className="ph-bold ph-gear text-lg"></i> 设置
+                  <i className="ph-bold ph-gear text-lg"></i> 设置面板
                 </button>
+
+                <div className="flex-1"></div> {/* 占位，把后面的按钮推到右侧 */}
 
                 <button
                   onClick={() => setHistory([])}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/90 hover:bg-white text-gray-800 shadow-lg font-bold transition-colors"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white text-gray-800 border border-gray-200 shadow-sm hover:bg-gray-50 font-bold transition-colors"
                 >
                   <i className="ph-bold ph-trash text-lg"></i> 清空字幕
                 </button>
 
                 <button
                   onClick={() => setObsMode(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg font-bold transition-colors"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-md font-bold transition-colors"
                 >
-                  <i className="ph-bold ph-monitor-play text-lg"></i> OBS模式
+                  <i className="ph-bold ph-monitor-play text-lg"></i> OBS纯净模式
                 </button>
               </div>
-            )}
 
+              {/* 展开的设置面板内容 */}
+              {showSettings && (
+                <div className="flex flex-col w-full max-h-[50vh] bg-gray-50 border-b border-gray-300">
+                  <div className="flex justify-between items-center px-6 py-2 border-b border-gray-200 bg-white shrink-0">
+                    <span className="font-bold text-gray-700 text-sm flex items-center gap-1">
+                      <i className="ph-bold ph-sliders text-base"></i> 个性化设置
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {/* 导入配置按钮 */}
+                      <div className="relative group flex items-center">
+                        <label className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors block border border-gray-200">
+                          <i className="ph-bold ph-folder-open text-base block"></i>
+                          <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                        </label>
+                        <div className="absolute top-full right-0 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">导入配置</div>
+                      </div>
+                      
+                      {/* 导出配置按钮 */}
+                      <div className="relative group flex items-center">
+                        <button onClick={handleExport} className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors border border-gray-200">
+                          <i className="ph-bold ph-floppy-disk text-base block"></i>
+                        </button>
+                        <div className="absolute top-full right-0 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">导出配置</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4列网格排版 */}
+                  <div className="p-6 overflow-y-auto custom-scrollbar flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                    
+                    {/* 模块：语音与API */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-microphone-stage text-base"></i> 语音与翻译 API</h3>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-gray-700">识别语言</label>
+                        <select value={config.language} onChange={(e) => updateConfig('language', e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-white shadow-sm">
+                          <option value="zh-CN">中文 (简体)</option>
+                          <option value="zh-TW">中文 (繁體)</option>
+                          <option value="ja-JP">日本語</option>
+                          <option value="en-US">English (US)</option>
+                          <option value="ko-KR">한국어</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2 pt-2 border-t border-gray-200">
+                        <label className="block text-xs font-bold text-gray-700">Google Apps Script (GAS) URL</label>
+                        <input 
+                          type="text" 
+                          placeholder="https://script.google.com/macros/s/..."
+                          value={config.gasUrl}
+                          onChange={(e) => updateConfig('gasUrl', e.target.value)}
+                          className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-white shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 模块：翻译目标 */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-globe-hemisphere-west text-base"></i> 多语言翻译</h3>
+                      
+                      {/* 翻译 1 */}
+                      <div className="p-3 bg-white border border-gray-200 shadow-sm rounded-xl space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-blue-800">
+                          <input type="checkbox" checked={config.trans1Enabled} onChange={(e) => updateConfig('trans1Enabled', e.target.checked)} className="rounded" />
+                          开启翻译 1
+                        </label>
+                        {config.trans1Enabled && (
+                          <div className="grid grid-cols-3 gap-2 mt-2">
+                            <select value={config.trans1Lang} onChange={(e) => updateConfig('trans1Lang', e.target.value)} className="col-span-3 p-1.5 text-xs border border-gray-200 rounded outline-none bg-gray-50">
+                              <option value="en">English</option>
+                              <option value="ja">日本語</option>
+                              <option value="zh-CN">中文(简体)</option>
+                              <option value="zh-TW">中文(繁體)</option>
+                              <option value="ko">한국어</option>
+                            </select>
+                            <div className="col-span-2 flex items-center gap-1">
+                              <span className="text-[10px] text-gray-600 whitespace-nowrap">大小 ({config.trans1Size}px)</span>
+                              <input type="range" min="12" max="80" value={config.trans1Size} onChange={(e) => updateConfig('trans1Size', Number(e.target.value))} className="w-full accent-blue-500" />
+                            </div>
+                            <input type="color" value={config.trans1Color} onChange={(e) => updateConfig('trans1Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 翻译 2 */}
+                      <div className="p-3 bg-white border border-gray-200 shadow-sm rounded-xl space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-purple-800">
+                          <input type="checkbox" checked={config.trans2Enabled} onChange={(e) => updateConfig('trans2Enabled', e.target.checked)} className="rounded" />
+                          开启翻译 2
+                        </label>
+                        {config.trans2Enabled && (
+                          <div className="grid grid-cols-3 gap-2 mt-2">
+                            <select value={config.trans2Lang} onChange={(e) => updateConfig('trans2Lang', e.target.value)} className="col-span-3 p-1.5 text-xs border border-gray-200 rounded outline-none bg-gray-50">
+                              <option value="en">English</option>
+                              <option value="ja">日本語</option>
+                              <option value="zh-CN">中文(简体)</option>
+                              <option value="zh-TW">中文(繁體)</option>
+                              <option value="ko">한국어</option>
+                            </select>
+                            <div className="col-span-2 flex items-center gap-1">
+                              <span className="text-[10px] text-gray-600 whitespace-nowrap">大小 ({config.trans2Size}px)</span>
+                              <input type="range" min="12" max="80" value={config.trans2Size} onChange={(e) => updateConfig('trans2Size', Number(e.target.value))} className="w-full accent-purple-500" />
+                            </div>
+                            <input type="color" value={config.trans2Color} onChange={(e) => updateConfig('trans2Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 模块：排版与布局 */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-text-aa text-base"></i> 字体与排版</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-600">字体类型</label>
+                          <select value={config.fontFamily} onChange={(e) => updateConfig('fontFamily', e.target.value)} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none bg-white">
+                            <option value="sans-serif">无衬线体 (黑体)</option>
+                            <option value="serif">衬线体 (宋体)</option>
+                            <option value="monospace">等宽字体</option>
+                            <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+                            <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-600">字体粗细</label>
+                          <select value={config.fontWeight} onChange={(e) => updateConfig('fontWeight', Number(e.target.value))} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none bg-white">
+                            <option value="400">常规 (Normal)</option>
+                            <option value="700">粗体 (Bold)</option>
+                            <option value="900">黑体 (Black)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-600">水平对齐</label>
+                          <div className="flex border border-gray-300 rounded overflow-hidden shadow-sm">
+                            {['left', 'center', 'right'].map(align => (
+                              <button 
+                                key={`h-${align}`} onClick={() => updateConfig('textAlign', align)}
+                                className={`flex-1 py-1 text-base flex justify-center items-center ${config.textAlign === align ? 'bg-gray-200 text-black' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
+                                title={`水平居${align === 'left' ? '左' : align === 'right' ? '右' : '中'}`}
+                              >
+                                <i className={`ph-bold ph-text-align-${align}`}></i>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-600">垂直对齐</label>
+                          <div className="flex border border-gray-300 rounded overflow-hidden shadow-sm">
+                            {[
+                              { val: 'top', icon: 'ph-align-top' }, 
+                              { val: 'center', icon: 'ph-align-center-vertical' }, 
+                              { val: 'bottom', icon: 'ph-align-bottom' }
+                            ].map(align => (
+                              <button 
+                                key={`v-${align.val}`} onClick={() => updateConfig('verticalAlign', align.val)}
+                                className={`flex-1 py-1 text-base flex justify-center items-center ${config.verticalAlign === align.val ? 'bg-gray-200 text-black' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
+                                title={`垂直居${align.val === 'top' ? '上' : align.val === 'bottom' ? '下' : '中'}`}
+                              >
+                                <i className={`ph-bold ${align.icon}`}></i>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-600">行高 ({config.lineHeight})</label>
+                          <input type="range" min="1" max="2.5" step="0.1" value={config.lineHeight} onChange={(e) => updateConfig('lineHeight', Number(e.target.value))} className="w-full" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-600">字间距 ({config.letterSpacing}px)</label>
+                          <input type="range" min="-5" max="20" step="1" value={config.letterSpacing} onChange={(e) => updateConfig('letterSpacing', Number(e.target.value))} className="w-full" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 模块：主字幕与背景颜色 */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-palette text-base"></i> 颜色与背景</h3>
+                      <div className="space-y-1">
+                        <label className="flex justify-between text-xs font-bold text-gray-600">
+                          <span>主字幕大小</span><span className="text-gray-800">{config.mainFontSize}px</span>
+                        </label>
+                        <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value))} className="w-full" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="block text-xs text-gray-600">字体颜色</label>
+                          <input type="color" value={config.mainFontColor} onChange={(e) => updateConfig('mainFontColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs text-gray-600">描边颜色</label>
+                          <input type="color" value={config.strokeColor} onChange={(e) => updateConfig('strokeColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="flex justify-between text-xs text-gray-600">
+                          <span>描边粗细</span><span>{config.strokeWidth}px</span>
+                        </label>
+                        <input type="range" min="0" max="20" value={config.strokeWidth} onChange={(e) => updateConfig('strokeWidth', Number(e.target.value))} className="w-full" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200">
+                        <div className="space-y-1">
+                          <label className="block text-xs text-gray-600">绿幕背景颜色</label>
+                          <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs text-gray-600">背景不透明度(%)</label>
+                          <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm shadow-sm" />
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 下半部分：字幕主显示区域 */}
+          <div 
+            className="flex-1 relative flex flex-col w-full h-full overflow-hidden transition-all duration-300 shadow-inner"
+            style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
+          >
             {/* OBS 退出提示层 */}
             {obsMode && (
               <div 
-                className="absolute top-0 left-0 w-full h-24 z-50 group flex items-center justify-center"
+                className="absolute top-0 left-0 w-full h-32 z-50 group flex items-center justify-center"
                 onDoubleClick={() => setObsMode(false)}
               >
-                <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-6 py-2 rounded-full transition-opacity cursor-pointer shadow-lg">
+                <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-8 py-3 rounded-full transition-opacity cursor-pointer shadow-2xl backdrop-blur-sm font-bold tracking-widest border border-white/20">
                   双击此处退出 OBS 纯净模式
                 </div>
               </div>
             )}
 
-            {/* 字幕显示区域 */}
-            <div className="flex-1 w-full overflow-y-auto px-4 sm:px-8 flex flex-col items-center hide-scrollbar safe-pb">
-              <div className={`w-full flex flex-col gap-6 max-w-6xl pt-32 sm:pt-24 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+            {/* 字幕滚动内容区 */}
+            <div className="flex-1 w-full overflow-y-auto px-4 sm:px-12 flex flex-col items-center hide-scrollbar safe-pb">
+              <div className={`w-full flex flex-col gap-6 max-w-6xl pt-12 pb-12 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
                 
                 {history.length === 0 && !currentTranscript && (
-                  <div className="text-gray-500 mt-10 opacity-80 font-bold" style={{ fontSize: '24px' }}>
-                    {isListening ? "🎙️ 等待声音输入..." : "点击左上角开启识别"}
+                  <div className="text-gray-500 mt-10 opacity-70 font-bold tracking-wider" style={{ fontSize: '24px' }}>
+                    {isListening ? "🎙️ 正在聆听声音输入..." : "点击左上角开启识别"}
                   </div>
                 )}
 
