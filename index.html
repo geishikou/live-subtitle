@@ -338,57 +338,57 @@
                 </div>
 
                 {/* 快捷切换主要语种下拉框 */}
-                <div className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 shadow-inner transition-colors border border-gray-200 h-10">
+                <div className="relative flex items-center bg-gray-100 hover:bg-gray-200 rounded-full shadow-inner transition-colors border border-gray-200 h-10 w-[116px]">
                   <select 
                     value={config.language} 
                     onChange={(e) => updateConfig('language', e.target.value)}
-                    className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer appearance-none"
+                    className="w-full h-full bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer appearance-none pl-4 pr-7 z-10 relative"
                     title="快捷切换您的说话语言"
                   >
-                    <option value="zh-CN">🇨🇳 原文: 中</option>
-                    <option value="en-US">🇺🇸 原文: 英</option>
-                    <option value="ja-JP">🇯🇵 原文: 日</option>
-                    <option value="ko-KR">🇰🇷 原文: 韩</option>
-                    <option value="zh-TW">🇹🇼 原文: 繁</option>
+                    <option value="zh-CN">原文: 🇨🇳 中</option>
+                    <option value="en-US">原文: 🇺🇸 英</option>
+                    <option value="ja-JP">原文: 🇯🇵 日</option>
+                    <option value="ko-KR">原文: 🇰🇷 韩</option>
+                    <option value="zh-TW">原文: 🌐 繁</option>
                   </select>
-                  <i className="ph-bold ph-caret-down text-gray-400 ml-1 text-xs pointer-events-none"></i>
+                  <i className="ph-bold ph-caret-down text-gray-400 absolute right-3 z-0 pointer-events-none text-xs"></i>
                 </div>
 
                 {/* 动态显示的翻译 1 快捷切换框 */}
                 {config.trans1Enabled && (
-                  <div className="flex items-center bg-blue-50 hover:bg-blue-100 rounded-full px-2.5 shadow-inner transition-colors border border-blue-200 h-10">
+                  <div className="relative flex items-center bg-blue-50 hover:bg-blue-100 rounded-full shadow-inner transition-colors border border-blue-200 h-10 w-[126px]">
                     <select 
                       value={config.trans1Lang} 
                       onChange={(e) => updateConfig('trans1Lang', e.target.value)}
-                      className="bg-transparent text-sm font-bold text-blue-800 outline-none cursor-pointer appearance-none"
+                      className="w-full h-full bg-transparent text-sm font-bold text-blue-800 outline-none cursor-pointer appearance-none pl-4 pr-7 z-10 relative"
                       title="快捷切换翻译 1 的目标语言"
                     >
-                      <option value="en">🇺🇸 译: Eng</option>
-                      <option value="ja">🇯🇵 译: 日</option>
-                      <option value="zh-CN">🇨🇳 译: 简</option>
-                      <option value="zh-TW">🇹🇼 译: 繁</option>
-                      <option value="ko">🇰🇷 译: 韩</option>
+                      <option value="en">译文: 🇺🇸 Eng</option>
+                      <option value="ja">译文: 🇯🇵 日</option>
+                      <option value="zh-CN">译文: 🇨🇳 简</option>
+                      <option value="zh-TW">译文: 🌐 繁</option>
+                      <option value="ko">译文: 🇰🇷 韩</option>
                     </select>
-                    <i className="ph-bold ph-caret-down text-blue-400 ml-1 text-xs pointer-events-none"></i>
+                    <i className="ph-bold ph-caret-down text-blue-400 absolute right-3 z-0 pointer-events-none text-xs"></i>
                   </div>
                 )}
 
                 {/* 动态显示的翻译 2 快捷切换框 */}
                 {config.trans2Enabled && (
-                  <div className="flex items-center bg-purple-50 hover:bg-purple-100 rounded-full px-2.5 shadow-inner transition-colors border border-purple-200 h-10">
+                  <div className="relative flex items-center bg-purple-50 hover:bg-purple-100 rounded-full shadow-inner transition-colors border border-purple-200 h-10 w-[126px]">
                     <select 
                       value={config.trans2Lang} 
                       onChange={(e) => updateConfig('trans2Lang', e.target.value)}
-                      className="bg-transparent text-sm font-bold text-purple-800 outline-none cursor-pointer appearance-none"
+                      className="w-full h-full bg-transparent text-sm font-bold text-purple-800 outline-none cursor-pointer appearance-none pl-4 pr-7 z-10 relative"
                       title="快捷切换翻译 2 的目标语言"
                     >
-                      <option value="en">🇺🇸 译: Eng</option>
-                      <option value="ja">🇯🇵 译: 日</option>
-                      <option value="zh-CN">🇨🇳 译: 简</option>
-                      <option value="zh-TW">🇹🇼 译: 繁</option>
-                      <option value="ko">🇰🇷 译: 韩</option>
+                      <option value="en">译文: 🇺🇸 Eng</option>
+                      <option value="ja">译文: 🇯🇵 日</option>
+                      <option value="zh-CN">译文: 🇨🇳 简</option>
+                      <option value="zh-TW">译文: 🌐 繁</option>
+                      <option value="ko">译文: 🇰🇷 韩</option>
                     </select>
-                    <i className="ph-bold ph-caret-down text-purple-400 ml-1 text-xs pointer-events-none"></i>
+                    <i className="ph-bold ph-caret-down text-purple-400 absolute right-3 z-0 pointer-events-none text-xs"></i>
                   </div>
                 )}
 
@@ -433,24 +433,13 @@
                 </div>
               </div>
 
-              {/* 展开的设置面板内容 (已去除分类标题与头部，排版更紧凑) */}
+              {/* 展开的设置面板内容 (排版更紧凑) */}
               <div className="flex flex-col w-full max-h-[50vh] bg-gray-50 border-b border-gray-300">
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   
                   {/* 列 1：语音与API */}
                   <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-gray-700">识别语言</label>
-                      <select value={config.language} onChange={(e) => updateConfig('language', e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-white shadow-sm">
-                        <option value="zh-CN">中文 (简体)</option>
-                        <option value="zh-TW">中文 (繁體)</option>
-                        <option value="ja-JP">日本語</option>
-                        <option value="en-US">English (US)</option>
-                        <option value="ko-KR">한국어</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                    <div className="space-y-1.5 pt-1">
                       <label className="flex justify-between text-xs font-bold text-gray-700">
                         <span>断句等待时间 (呼吸检测)</span>
                         <span className="text-blue-600">{config.pauseDuration} ms</span>
@@ -464,7 +453,7 @@
                       <p className="text-[10px] text-gray-500 leading-tight">建议值：800ms ~ 1200ms</p>
                     </div>
 
-                    <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                    <div className="space-y-1.5 pt-3 border-t border-gray-200">
                       <label className="block text-xs font-bold text-gray-700">Google Apps Script (GAS) URL</label>
                       <input 
                         type="text" 
@@ -485,19 +474,12 @@
                         开启翻译 1
                       </label>
                       {config.trans1Enabled && (
-                        <div className="grid grid-cols-3 gap-2 mt-2">
-                          <select value={config.trans1Lang} onChange={(e) => updateConfig('trans1Lang', e.target.value)} className="col-span-3 p-1.5 text-xs border border-gray-200 rounded outline-none bg-gray-50">
-                            <option value="en">English</option>
-                            <option value="ja">日本語</option>
-                            <option value="zh-CN">中文(简体)</option>
-                            <option value="zh-TW">中文(繁體)</option>
-                            <option value="ko">한국어</option>
-                          </select>
+                        <div className="grid grid-cols-3 gap-2 mt-2 items-center">
                           <div className="col-span-2 flex items-center gap-1">
-                            <span className="text-[10px] text-gray-600 whitespace-nowrap">大小 ({config.trans1Size}px)</span>
+                            <span className="text-[10px] font-bold text-gray-600 whitespace-nowrap">字体大小</span>
                             <input type="range" min="12" max="80" value={config.trans1Size} onChange={(e) => updateConfig('trans1Size', Number(e.target.value))} className="w-full accent-blue-500" />
                           </div>
-                          <input type="color" value={config.trans1Color} onChange={(e) => updateConfig('trans1Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1" />
+                          <input type="color" value={config.trans1Color} onChange={(e) => updateConfig('trans1Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1 shadow-sm" />
                         </div>
                       )}
                     </div>
@@ -509,19 +491,12 @@
                         开启翻译 2
                       </label>
                       {config.trans2Enabled && (
-                        <div className="grid grid-cols-3 gap-2 mt-2">
-                          <select value={config.trans2Lang} onChange={(e) => updateConfig('trans2Lang', e.target.value)} className="col-span-3 p-1.5 text-xs border border-gray-200 rounded outline-none bg-gray-50">
-                            <option value="en">English</option>
-                            <option value="ja">日本語</option>
-                            <option value="zh-CN">中文(简体)</option>
-                            <option value="zh-TW">中文(繁體)</option>
-                            <option value="ko">한국어</option>
-                          </select>
+                        <div className="grid grid-cols-3 gap-2 mt-2 items-center">
                           <div className="col-span-2 flex items-center gap-1">
-                            <span className="text-[10px] text-gray-600 whitespace-nowrap">大小 ({config.trans2Size}px)</span>
+                            <span className="text-[10px] font-bold text-gray-600 whitespace-nowrap">字体大小</span>
                             <input type="range" min="12" max="80" value={config.trans2Size} onChange={(e) => updateConfig('trans2Size', Number(e.target.value))} className="w-full accent-purple-500" />
                           </div>
-                          <input type="color" value={config.trans2Color} onChange={(e) => updateConfig('trans2Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1" />
+                          <input type="color" value={config.trans2Color} onChange={(e) => updateConfig('trans2Color', e.target.value)} className="w-full h-6 p-0 border-0 rounded cursor-pointer col-span-1 shadow-sm" />
                         </div>
                       )}
                     </div>
@@ -530,7 +505,7 @@
                   {/* 列 3：字体排版 */}
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-gray-600">字体类型</label>
                         <select value={config.fontFamily} onChange={(e) => updateConfig('fontFamily', e.target.value)} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none bg-white">
                           <option value="sans-serif">黑体 (无衬线)</option>
@@ -540,7 +515,7 @@
                           <option value="'Noto Sans JP', sans-serif">Noto Sans</option>
                         </select>
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-gray-600">字体粗细</label>
                         <select value={config.fontWeight} onChange={(e) => updateConfig('fontWeight', Number(e.target.value))} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none bg-white">
                           <option value="400">常规</option>
@@ -548,7 +523,7 @@
                           <option value="900">超粗</option>
                         </select>
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-gray-600">水平对齐</label>
                         <div className="flex border border-gray-300 rounded overflow-hidden shadow-sm">
                           {['left', 'center', 'right'].map(align => (
@@ -562,7 +537,7 @@
                           ))}
                         </div>
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-gray-600">垂直对齐</label>
                         <div className="flex border border-gray-300 rounded overflow-hidden shadow-sm">
                           {[
@@ -580,49 +555,53 @@
                           ))}
                         </div>
                       </div>
-                      <div className="space-y-1">
-                        <label className="block text-xs font-bold text-gray-600">行高 ({config.lineHeight})</label>
+                      <div className="space-y-1.5">
+                        <label className="flex justify-between text-xs font-bold text-gray-600"><span>行高</span><span className="text-gray-800">{config.lineHeight}</span></label>
                         <input type="range" min="1" max="2.5" step="0.1" value={config.lineHeight} onChange={(e) => updateConfig('lineHeight', Number(e.target.value))} className="w-full" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="block text-xs font-bold text-gray-600">字间距 ({config.letterSpacing}px)</label>
+                      <div className="space-y-1.5">
+                        <label className="flex justify-between text-xs font-bold text-gray-600"><span>字间距</span><span className="text-gray-800">{config.letterSpacing}px</span></label>
                         <input type="range" min="-5" max="20" step="1" value={config.letterSpacing} onChange={(e) => updateConfig('letterSpacing', Number(e.target.value))} className="w-full" />
                       </div>
                     </div>
                   </div>
 
                   {/* 列 4：颜色与背景 */}
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="flex justify-between text-xs font-bold text-gray-600">
-                        <span>主字幕大小</span><span className="text-gray-800">{config.mainFontSize}px</span>
-                      </label>
-                      <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value))} className="w-full" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">字体颜色</label>
-                        <input type="color" value={config.mainFontColor} onChange={(e) => updateConfig('mainFontColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 items-end">
+                      <div className="space-y-1.5">
+                        <label className="flex justify-between text-xs font-bold text-gray-600">
+                          <span>主字幕大小</span><span className="text-gray-800">{config.mainFontSize}px</span>
+                        </label>
+                        <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value))} className="w-full" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">描边颜色</label>
-                        <input type="color" value={config.strokeColor} onChange={(e) => updateConfig('strokeColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-600">主字体颜色</label>
+                        <input type="color" value={config.mainFontColor} onChange={(e) => updateConfig('mainFontColor', e.target.value)} className="w-full h-7 p-0 border-0 rounded cursor-pointer shadow-sm" />
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <label className="flex justify-between text-xs text-gray-600">
-                        <span>描边粗细</span><span>{config.strokeWidth}px</span>
-                      </label>
-                      <input type="range" min="0" max="20" value={config.strokeWidth} onChange={(e) => updateConfig('strokeWidth', Number(e.target.value))} className="w-full" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200">
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">绿幕背景颜色</label>
-                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+
+                    <div className="grid grid-cols-2 gap-4 items-end">
+                      <div className="space-y-1.5">
+                        <label className="flex justify-between text-xs font-bold text-gray-600">
+                          <span>描边粗细</span><span className="text-gray-800">{config.strokeWidth}px</span>
+                        </label>
+                        <input type="range" min="0" max="20" value={config.strokeWidth} onChange={(e) => updateConfig('strokeWidth', Number(e.target.value))} className="w-full" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">不透明度(%)</label>
-                        <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm shadow-sm" />
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-600">描边颜色</label>
+                        <input type="color" value={config.strokeColor} onChange={(e) => updateConfig('strokeColor', e.target.value)} className="w-full h-7 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-200 items-end">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-600">绿幕背景颜色</label>
+                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-7 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-600">不透明度 (%)</label>
+                        <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm shadow-sm h-7 box-border" />
                       </div>
                     </div>
                   </div>
