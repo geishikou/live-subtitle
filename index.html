@@ -29,7 +29,7 @@
     /* 移动端安全区域与适配 */
     .safe-top { top: max(16px, env(safe-area-inset-top)); }
     .safe-left { left: max(16px, env(safe-area-inset-left)); }
-    .settings-top { top: max(76px, calc(env(safe-area-inset-top) + 60px)); }
+    .safe-pt { padding-top: max(16px, env(safe-area-inset-top)); }
     .safe-pb { padding-bottom: max(48px, env(safe-area-inset-bottom)); }
   </style>
 </head>
@@ -325,81 +325,12 @@
         'mt-auto mb-0';
 
       return (
-        <div 
-          className="relative w-full h-[100dvh] flex flex-col overflow-hidden font-sans"
-          style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
-        >
-          {/* 顶部控制栏 */}
-          {!obsMode && (
-            <div className="absolute safe-top safe-left right-4 z-50 flex flex-wrap gap-2">
-              <button
-                onClick={toggleListening}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold shadow-lg transition-colors ${
-                  isListening ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'
-                }`}
-              >
-                <i className={`ph-bold text-lg ${isListening ? 'ph-microphone-slash' : 'ph-microphone'}`}></i>
-                {isListening ? '停止识别' : '开始识别'}
-              </button>
-
-              {/* 快捷切换语种下拉框 */}
-              <div className="flex items-center bg-white/90 rounded-full px-3 shadow-lg hover:bg-white transition-colors border border-gray-100">
-                <i className="ph-bold ph-translate text-gray-500 mr-1.5 text-lg"></i>
-                <select 
-                  value={config.language} 
-                  onChange={(e) => updateConfig('language', e.target.value)}
-                  className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer py-2 appearance-none"
-                  title="快捷切换您的说话语言"
-                >
-                  <option value="zh-CN">🇨🇳 中文</option>
-                  <option value="en-US">🇺🇸 English</option>
-                  <option value="ja-JP">🇯🇵 日本語</option>
-                  <option value="ko-KR">🇰🇷 한국어</option>
-                  <option value="zh-TW">🇹🇼 繁體</option>
-                </select>
-                <i className="ph-bold ph-caret-down text-gray-400 ml-1 text-xs pointer-events-none"></i>
-              </div>
-              
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/90 hover:bg-white text-gray-800 shadow-lg font-bold transition-colors"
-              >
-                <i className="ph-bold ph-gear text-lg"></i> 设置
-              </button>
-
-              <button
-                onClick={() => setHistory([])}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/90 hover:bg-white text-gray-800 shadow-lg font-bold transition-colors"
-              >
-                <i className="ph-bold ph-trash text-lg"></i> 清空字幕
-              </button>
-
-              <button
-                onClick={() => setObsMode(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg font-bold transition-colors"
-              >
-                <i className="ph-bold ph-monitor-play text-lg"></i> OBS模式 (隐藏UI)
-              </button>
-            </div>
-          )}
-
-          {/* OBS 退出提示层 */}
-          {obsMode && (
-            <div 
-              className="absolute top-0 left-0 w-full h-24 z-50 group flex items-center justify-center"
-              onDoubleClick={() => setObsMode(false)}
-            >
-              <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-6 py-2 rounded-full transition-opacity cursor-pointer shadow-lg">
-                双击此处退出 OBS 纯净模式
-              </div>
-            </div>
-          )}
-
-          {/* 设置面板 */}
+        <div className="flex w-full h-[100dvh] overflow-hidden font-sans bg-gray-100">
+          
+          {/* 左侧：设置面板 (桌面端侧边栏，移动端悬浮) */}
           {!obsMode && showSettings && (
-            <div className="absolute settings-top safe-left z-40 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 w-96 max-w-[calc(100vw-32px)] flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top) - 100px)' }}>
-              
-              <div className="flex justify-between items-center p-4 border-b border-gray-200 shrink-0">
+            <div className="fixed md:relative top-0 left-0 z-50 md:z-40 w-96 max-w-[85vw] h-full flex-shrink-0 bg-white/95 backdrop-blur-md shadow-2xl border-r border-gray-200 flex flex-col transition-all">
+              <div className="flex justify-between items-center px-4 pb-4 safe-pt border-b border-gray-200 shrink-0">
                 <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
                   <i className="ph-bold ph-sliders text-xl"></i>控制面板
                 </h2>
@@ -439,8 +370,7 @@
                 </div>
               </div>
 
-              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-6">
-                
+              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-6 safe-pb">
                 {/* 模块：语音与API */}
                 <div className="space-y-3">
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">🎙️ 语音与翻译</h3>
@@ -628,51 +558,122 @@
                     </div>
                   </div>
                 </div>
-
               </div>
             </div>
           )}
 
-          {/* 字幕显示区域 */}
-          <div className="flex-1 w-full overflow-y-auto px-4 sm:px-8 flex flex-col items-center hide-scrollbar safe-pb">
-            <div className={`w-full flex flex-col gap-6 max-w-6xl pt-32 sm:pt-24 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-              
-              {history.length === 0 && !currentTranscript && (
-                <div className="text-gray-500 mt-10 opacity-80 font-bold" style={{ fontSize: '24px' }}>
-                  {isListening ? "🎙️ 等待声音输入..." : "点击左上角开启识别"}
-                </div>
-              )}
+          {/* 右侧：主字幕与控制区域 */}
+          <div 
+            className="flex-1 relative flex flex-col h-full overflow-hidden transition-all duration-300"
+            style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
+          >
+            {/* 顶部控制栏 */}
+            {!obsMode && (
+              <div className="absolute safe-top safe-left right-4 z-40 flex flex-wrap gap-2">
+                <button
+                  onClick={toggleListening}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold shadow-lg transition-colors ${
+                    isListening ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
+                >
+                  <i className={`ph-bold text-lg ${isListening ? 'ph-microphone-slash' : 'ph-microphone'}`}></i>
+                  {isListening ? '停止识别' : '开始识别'}
+                </button>
 
-              {/* 历史记录（包含原文与翻译） */}
-              {history.map((item) => (
-                <div key={item.id} className="w-full flex flex-col break-words tracking-wide" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                  <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor }}>
-                    {item.original}
-                  </div>
-                  {config.trans1Enabled && item.t1 && (
-                    <div style={{ ...baseTextStyle, fontSize: `${config.trans1Size}px`, color: config.trans1Color }}>
-                      {item.t1}
-                    </div>
-                  )}
-                  {config.trans2Enabled && item.t2 && (
-                    <div style={{ ...baseTextStyle, fontSize: `${config.trans2Size}px`, color: config.trans2Color }}>
-                      {item.t2}
-                    </div>
-                  )}
+                {/* 快捷切换语种下拉框 */}
+                <div className="flex items-center bg-white/90 rounded-full px-3 shadow-lg hover:bg-white transition-colors border border-gray-100">
+                  <i className="ph-bold ph-translate text-gray-500 mr-1.5 text-lg"></i>
+                  <select 
+                    value={config.language} 
+                    onChange={(e) => updateConfig('language', e.target.value)}
+                    className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer py-2 appearance-none"
+                    title="快捷切换您的说话语言"
+                  >
+                    <option value="zh-CN">🇨🇳 中文</option>
+                    <option value="en-US">🇺🇸 English</option>
+                    <option value="ja-JP">🇯🇵 日本語</option>
+                    <option value="ko-KR">🇰🇷 한국어</option>
+                    <option value="zh-TW">🇹🇼 繁體</option>
+                  </select>
+                  <i className="ph-bold ph-caret-down text-gray-400 ml-1 text-xs pointer-events-none"></i>
                 </div>
-              ))}
+                
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full shadow-lg font-bold transition-colors ${showSettings ? 'bg-gray-800 text-white hover:bg-gray-900' : 'bg-white/90 text-gray-800 hover:bg-white'}`}
+                >
+                  <i className="ph-bold ph-gear text-lg"></i> 设置
+                </button>
 
-              {/* 当前正在说的临时句子 */}
-              {currentTranscript && (
-                <div className="w-full flex flex-col break-words tracking-wide" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                  <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
-                    {currentTranscript}
-                  </div>
+                <button
+                  onClick={() => setHistory([])}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/90 hover:bg-white text-gray-800 shadow-lg font-bold transition-colors"
+                >
+                  <i className="ph-bold ph-trash text-lg"></i> 清空字幕
+                </button>
+
+                <button
+                  onClick={() => setObsMode(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg font-bold transition-colors"
+                >
+                  <i className="ph-bold ph-monitor-play text-lg"></i> OBS模式
+                </button>
+              </div>
+            )}
+
+            {/* OBS 退出提示层 */}
+            {obsMode && (
+              <div 
+                className="absolute top-0 left-0 w-full h-24 z-50 group flex items-center justify-center"
+                onDoubleClick={() => setObsMode(false)}
+              >
+                <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-6 py-2 rounded-full transition-opacity cursor-pointer shadow-lg">
+                  双击此处退出 OBS 纯净模式
                 </div>
-              )}
-              
-              {/* 底部定位锚点 */}
-              <div ref={scrollRef} className="h-4 w-full shrink-0" />
+              </div>
+            )}
+
+            {/* 字幕显示区域 */}
+            <div className="flex-1 w-full overflow-y-auto px-4 sm:px-8 flex flex-col items-center hide-scrollbar safe-pb">
+              <div className={`w-full flex flex-col gap-6 max-w-6xl pt-32 sm:pt-24 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                
+                {history.length === 0 && !currentTranscript && (
+                  <div className="text-gray-500 mt-10 opacity-80 font-bold" style={{ fontSize: '24px' }}>
+                    {isListening ? "🎙️ 等待声音输入..." : "点击左上角开启识别"}
+                  </div>
+                )}
+
+                {/* 历史记录（包含原文与翻译） */}
+                {history.map((item) => (
+                  <div key={item.id} className="w-full flex flex-col break-words tracking-wide" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor }}>
+                      {item.original}
+                    </div>
+                    {config.trans1Enabled && item.t1 && (
+                      <div style={{ ...baseTextStyle, fontSize: `${config.trans1Size}px`, color: config.trans1Color }}>
+                        {item.t1}
+                      </div>
+                    )}
+                    {config.trans2Enabled && item.t2 && (
+                      <div style={{ ...baseTextStyle, fontSize: `${config.trans2Size}px`, color: config.trans2Color }}>
+                        {item.t2}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* 当前正在说的临时句子 */}
+                {currentTranscript && (
+                  <div className="w-full flex flex-col break-words tracking-wide" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
+                      {currentTranscript}
+                    </div>
+                  </div>
+                )}
+                
+                {/* 底部定位锚点 */}
+                <div ref={scrollRef} className="h-4 w-full shrink-0" />
+              </div>
             </div>
           </div>
         </div>
