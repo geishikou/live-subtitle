@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>实时滚动字幕与翻译 (上下布局版)</title>
+  <title>实时滚动字幕与翻译 (紧凑纯净版)</title>
   
   <!-- 引入 React 和 ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -41,7 +41,7 @@
     const defaultConfig = {
       language: 'zh-CN',
       gasUrl: '',
-      pauseDuration: 800, // 核心机制：呼吸停顿检测毫秒数，默认 800ms
+      pauseDuration: 800, 
       
       trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
       trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -59,7 +59,7 @@
       const [history, setHistory] = useState([]); // { id, original, t1, t2 }
       const [currentTranscript, setCurrentTranscript] = useState('');
 
-      // 统一 UI 显示状态（true 为展开设置，false 为 OBS 纯净模式）
+      // 统一 UI 显示状态（true 为展开所有控制，false 为点击屏幕后的纯净 OBS 模式）
       const [showUI, setShowUI] = useState(true);
 
       // --- 统一配置管理 (支持本地存储) ---
@@ -112,7 +112,6 @@
           try {
             const importedConfig = JSON.parse(e.target.result);
             setConfig(prev => ({ ...prev, ...importedConfig }));
-            alert("配置导入成功！");
           } catch (error) {
             console.error("导入失败:", error);
             alert("导入失败，文件格式不正确或已损坏。");
@@ -125,9 +124,8 @@
       // --- Refs ---
       const recognitionRef = useRef(null);
       const scrollRef = useRef(null);
-      const silenceTimerRef = useRef(null); // 用于跟踪呼吸停顿的定时器
+      const silenceTimerRef = useRef(null);
       
-      // 使用 Ref 追踪最新状态以供异步事件使用
       const stateRef = useRef({ 
         isListening, 
         gasUrl: config.gasUrl, 
@@ -148,10 +146,10 @@
         };
       }, [isListening, config.gasUrl, config.language, config.pauseDuration, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
 
-      // --- 翻译 API 调用 (Google Apps Script) ---
+      // --- 翻译 API 调用 ---
       const fetchTranslation = async (text, targetLang) => {
         const url = stateRef.current.gasUrl.trim();
-        if (!url) return "[请先配置 GAS URL]";
+        if (!url) return "[请配置GAS接口]";
         
         try {
           let sourceLang = stateRef.current.language;
@@ -160,15 +158,14 @@
           else if (sourceLang === 'ko-KR') sourceLang = 'ko';
 
           const res = await fetch(`${url}?text=${encodeURIComponent(text)}&source=${sourceLang}&target=${targetLang}`);
-          const translatedText = await res.text();
-          return translatedText;
+          return await res.text();
         } catch (e) {
           console.error("GAS Fetch error:", e);
-          return "[网络错误或跨域拦截]";
+          return "[网络错误]";
         }
       };
 
-      // --- 核心：提取手动提交文字并翻译的逻辑 ---
+      // --- 核心提交逻辑 ---
       const commitText = async (text) => {
         const trimmedText = text.trim();
         if (!trimmedText) return;
@@ -188,19 +185,14 @@
         setCurrentTranscript('');
 
         const t1Promise = stateRef.current.trans1Enabled 
-          ? fetchTranslation(trimmedText, stateRef.current.trans1Lang) 
-          : Promise.resolve('');
-        
+          ? fetchTranslation(trimmedText, stateRef.current.trans1Lang) : Promise.resolve('');
         const t2Promise = stateRef.current.trans2Enabled 
-          ? fetchTranslation(trimmedText, stateRef.current.trans2Lang) 
-          : Promise.resolve('');
+          ? fetchTranslation(trimmedText, stateRef.current.trans2Lang) : Promise.resolve('');
 
         const [res1, res2] = await Promise.all([t1Promise, t2Promise]);
 
         setHistory((prev) => 
-          prev.map(item => 
-            item.id === itemId ? { ...item, t1: res1, t2: res2 } : item
-          )
+          prev.map(item => item.id === itemId ? { ...item, t1: res1, t2: res2 } : item)
         );
       };
 
@@ -218,77 +210,48 @@
         recognitionRef.current = recognition;
 
         recognition.onresult = (event) => {
-          // 每次监听到新的声音或文字变化，就清除之前的停顿倒计时
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-          }
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
           let currentInterim = '';
           let currentFinals = '';
 
           for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              currentFinals += event.results[i][0].transcript;
-            } else {
-              currentInterim += event.results[i][0].transcript;
-            }
+            if (event.results[i].isFinal) currentFinals += event.results[i][0].transcript;
+            else currentInterim += event.results[i][0].transcript;
           }
 
-          if (currentFinals) {
-            commitText(currentFinals);
-          }
-
+          if (currentFinals) commitText(currentFinals);
           setCurrentTranscript(currentInterim);
 
-          // 核心机制：呼吸停顿检测
-          // 如果存在临时文字，且设定的检测时间有效，重新开启倒计时
           if (currentInterim && stateRef.current.isListening && stateRef.current.pauseDuration > 0) {
             silenceTimerRef.current = setTimeout(() => {
-              // 如果在这个毫秒数内没有新的语音输入（倒计时顺利走完）
               if (recognitionRef.current && stateRef.current.isListening) {
-                try {
-                  // 主动让引擎结算当前句子，保证上下文完整，不会切开半个词
-                  recognitionRef.current.stop();
-                } catch (e) {
-                  // 忽略报错
-                }
+                try { recognitionRef.current.stop(); } catch (e) {}
               }
             }, stateRef.current.pauseDuration);
           }
         };
 
         recognition.onerror = (event) => {
-          if (event.error === 'no-speech' || event.error === 'aborted') {
-            return;
-          }
-          console.error("Speech recognition error", event.error);
+          if (event.error === 'no-speech' || event.error === 'aborted') return;
+          console.error("Speech error", event.error);
           if (event.error === 'not-allowed') {
             setIsListening(false);
             stateRef.current.isListening = false;
-            alert("麦克风被拒绝！请检查浏览器权限。");
           }
         };
 
         recognition.onend = () => {
-          // 如果是因为我们的断句 stop() 导致的结束，立即无缝重启
           if (stateRef.current.isListening) {
             setTimeout(() => {
-              try {
-                if (recognitionRef.current && stateRef.current.isListening) {
-                  recognitionRef.current.start();
-                }
-              } catch (e) {}
-            }, 100); // 极短的延迟，保证无缝衔接
+              try { if (recognitionRef.current && stateRef.current.isListening) recognitionRef.current.start(); } catch (e) {}
+            }, 100);
           }
         };
 
         return () => {
-          if (recognitionRef.current) {
-            recognitionRef.current.stop();
-          }
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-          }
+          if (recognitionRef.current) recognitionRef.current.stop();
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         };
       }, []);
 
@@ -296,9 +259,7 @@
       useEffect(() => {
         if (recognitionRef.current) {
           recognitionRef.current.lang = config.language;
-          if (stateRef.current.isListening) {
-            recognitionRef.current.stop();
-          }
+          if (stateRef.current.isListening) recognitionRef.current.stop();
         }
       }, [config.language]);
 
@@ -309,29 +270,28 @@
         stateRef.current.isListening = nextState;
         
         if (nextState) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {}
+          try { recognitionRef.current.start(); } catch (e) {}
         } else {
           recognitionRef.current.stop();
           setCurrentTranscript('');
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-          }
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         }
       };
 
       // 自动滚动
       useEffect(() => {
-        if (scrollRef.current) {
-          scrollRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
+        if (scrollRef.current) scrollRef.current.scrollIntoView({ behavior: 'smooth' });
       }, [history, currentTranscript]);
 
+      // 防白屏：安全解析背景颜色
       const hexToRgba = (hex, alpha) => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
+        if (!hex || typeof hex !== 'string') return `rgba(0, 255, 0, ${alpha / 100})`;
+        let h = hex.replace('#', '');
+        if (h.length === 3) h = h.split('').map(c => c + c).join('');
+        if (h.length !== 6) return `rgba(0, 255, 0, ${alpha / 100})`;
+        const r = parseInt(h.slice(0, 2), 16) || 0;
+        const g = parseInt(h.slice(2, 4), 16) || 255;
+        const b = parseInt(h.slice(4, 6), 16) || 0;
         return `rgba(${r}, ${g}, ${b}, ${alpha / 100})`;
       };
 
@@ -347,7 +307,6 @@
         margin: '2px 0'
       };
 
-      // 垂直对齐 CSS 逻辑
       const verticalMarginClass = 
         config.verticalAlign === 'top' ? 'mb-auto mt-0' :
         config.verticalAlign === 'center' ? 'my-auto' :
@@ -360,14 +319,14 @@
           {showUI && (
             <div className="flex flex-col shrink-0 w-full z-40 bg-white shadow-md transition-all relative">
               
-              {/* 控制工具栏 (已合并所有快捷操作) */}
+              {/* 控制工具栏 (极简设计) */}
               <div className="flex flex-wrap items-center gap-2.5 px-4 py-2 safe-pt border-b border-gray-200">
                 
-                {/* 开始/停止识别按钮 (纯图标+Tooltip) */}
+                {/* 1. 开始/停止识别按钮 (纯图标+Tooltip) */}
                 <div className="relative group flex items-center">
                   <button
                     onClick={toggleListening}
-                    className={`flex items-center justify-center p-2.5 rounded-full font-bold shadow-sm transition-colors ${
+                    className={`flex items-center justify-center w-10 h-10 rounded-full font-bold shadow-sm transition-colors ${
                       isListening ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'
                     }`}
                   >
@@ -379,11 +338,11 @@
                 </div>
 
                 {/* 快捷切换主要语种下拉框 */}
-                <div className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 shadow-inner transition-colors border border-gray-200">
+                <div className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 shadow-inner transition-colors border border-gray-200 h-10">
                   <select 
                     value={config.language} 
                     onChange={(e) => updateConfig('language', e.target.value)}
-                    className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer py-1.5 appearance-none"
+                    className="bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer appearance-none"
                     title="快捷切换您的说话语言"
                   >
                     <option value="zh-CN">🇨🇳 原文: 中</option>
@@ -392,16 +351,16 @@
                     <option value="ko-KR">🇰🇷 原文: 韩</option>
                     <option value="zh-TW">🇹🇼 原文: 繁</option>
                   </select>
-                  <i className="ph-bold ph-caret-down text-gray-400 ml-1.5 text-xs pointer-events-none"></i>
+                  <i className="ph-bold ph-caret-down text-gray-400 ml-1 text-xs pointer-events-none"></i>
                 </div>
 
                 {/* 动态显示的翻译 1 快捷切换框 */}
                 {config.trans1Enabled && (
-                  <div className="flex items-center bg-blue-50 hover:bg-blue-100 rounded-full px-2.5 shadow-inner transition-colors border border-blue-200">
+                  <div className="flex items-center bg-blue-50 hover:bg-blue-100 rounded-full px-2.5 shadow-inner transition-colors border border-blue-200 h-10">
                     <select 
                       value={config.trans1Lang} 
                       onChange={(e) => updateConfig('trans1Lang', e.target.value)}
-                      className="bg-transparent text-sm font-bold text-blue-800 outline-none cursor-pointer py-1.5 appearance-none"
+                      className="bg-transparent text-sm font-bold text-blue-800 outline-none cursor-pointer appearance-none"
                       title="快捷切换翻译 1 的目标语言"
                     >
                       <option value="en">🇺🇸 译: Eng</option>
@@ -410,17 +369,17 @@
                       <option value="zh-TW">🇹🇼 译: 繁</option>
                       <option value="ko">🇰🇷 译: 韩</option>
                     </select>
-                    <i className="ph-bold ph-caret-down text-blue-400 ml-1.5 text-xs pointer-events-none"></i>
+                    <i className="ph-bold ph-caret-down text-blue-400 ml-1 text-xs pointer-events-none"></i>
                   </div>
                 )}
 
                 {/* 动态显示的翻译 2 快捷切换框 */}
                 {config.trans2Enabled && (
-                  <div className="flex items-center bg-purple-50 hover:bg-purple-100 rounded-full px-2.5 shadow-inner transition-colors border border-purple-200">
+                  <div className="flex items-center bg-purple-50 hover:bg-purple-100 rounded-full px-2.5 shadow-inner transition-colors border border-purple-200 h-10">
                     <select 
                       value={config.trans2Lang} 
                       onChange={(e) => updateConfig('trans2Lang', e.target.value)}
-                      className="bg-transparent text-sm font-bold text-purple-800 outline-none cursor-pointer py-1.5 appearance-none"
+                      className="bg-transparent text-sm font-bold text-purple-800 outline-none cursor-pointer appearance-none"
                       title="快捷切换翻译 2 的目标语言"
                     >
                       <option value="en">🇺🇸 译: Eng</option>
@@ -429,17 +388,17 @@
                       <option value="zh-TW">🇹🇼 译: 繁</option>
                       <option value="ko">🇰🇷 译: 韩</option>
                     </select>
-                    <i className="ph-bold ph-caret-down text-purple-400 ml-1.5 text-xs pointer-events-none"></i>
+                    <i className="ph-bold ph-caret-down text-purple-400 ml-1 text-xs pointer-events-none"></i>
                   </div>
                 )}
 
                 <div className="flex-1"></div> {/* 弹性占位，把后面的按钮推到右侧 */}
 
                 {/* 右侧：4个纯图标控制按钮合并组 */}
-                <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-200">
+                <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-200">
                   {/* 导入配置 */}
                   <div className="relative group flex items-center">
-                    <label className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-100 rounded-md cursor-pointer transition-colors block">
+                    <label className="text-gray-600 hover:text-blue-600 p-2 hover:bg-blue-100 rounded-lg cursor-pointer transition-colors block m-0">
                       <i className="ph-bold ph-folder-open text-base block"></i>
                       <input type="file" accept=".json" onChange={handleImport} className="hidden" />
                     </label>
@@ -448,7 +407,7 @@
                   
                   {/* 导出配置 */}
                   <div className="relative group flex items-center">
-                    <button onClick={handleExport} className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-100 rounded-md transition-colors">
+                    <button onClick={handleExport} className="text-gray-600 hover:text-blue-600 p-2 hover:bg-blue-100 rounded-lg transition-colors m-0">
                       <i className="ph-bold ph-floppy-disk text-base block"></i>
                     </button>
                     <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">导出配置</div>
@@ -456,20 +415,20 @@
 
                   {/* 清空字幕 */}
                   <div className="relative group flex items-center">
-                    <button onClick={() => setHistory([])} className="text-gray-600 hover:text-orange-600 p-1.5 hover:bg-orange-100 rounded-md transition-colors">
+                    <button onClick={(e) => { e.stopPropagation(); setHistory([]); }} className="text-gray-600 hover:text-orange-600 p-2 hover:bg-orange-100 rounded-lg transition-colors m-0">
                       <i className="ph-bold ph-trash text-base block"></i>
                     </button>
                     <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">清空字幕</div>
                   </div>
 
-                  <div className="w-px h-4 bg-gray-300 mx-0.5"></div>
+                  <div className="w-px h-5 bg-gray-300 mx-0.5"></div>
                   
                   {/* 隐藏UI (进入纯净模式) */}
                   <div className="relative group flex items-center">
-                    <button onClick={() => setShowUI(false)} className="text-gray-600 hover:text-red-600 p-1.5 hover:bg-red-100 rounded-md transition-colors">
-                      <i className="ph-bold ph-x text-base block"></i>
+                    <button onClick={(e) => { e.stopPropagation(); setShowUI(false); }} className="text-gray-600 hover:text-red-600 p-2 hover:bg-red-100 rounded-lg transition-colors m-0">
+                      <i className="ph-bold ph-eye-slash text-base block"></i>
                     </button>
-                    <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">隐藏面板 (OBS模式)</div>
+                    <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">隐藏面板 (点屏幕恢复)</div>
                   </div>
                 </div>
               </div>
@@ -478,7 +437,7 @@
               <div className="flex flex-col w-full max-h-[50vh] bg-gray-50 border-b border-gray-300">
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   
-                  {/* 模块：语音与API */}
+                  {/* 列 1：语音与API */}
                   <div className="space-y-3">
                     <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-gray-700">识别语言</label>
@@ -517,7 +476,7 @@
                     </div>
                   </div>
 
-                  {/* 模块：翻译目标 */}
+                  {/* 列 2：翻译设置 */}
                   <div className="space-y-3">
                     {/* 翻译 1 */}
                     <div className="p-3 bg-white border border-gray-200 shadow-sm rounded-xl space-y-2">
@@ -568,25 +527,25 @@
                     </div>
                   </div>
 
-                  {/* 模块：排版与布局 */}
+                  {/* 列 3：字体排版 */}
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="block text-xs font-bold text-gray-600">字体类型</label>
                         <select value={config.fontFamily} onChange={(e) => updateConfig('fontFamily', e.target.value)} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none bg-white">
-                          <option value="sans-serif">无衬线体 (黑体)</option>
-                          <option value="serif">衬线体 (宋体)</option>
-                          <option value="monospace">等宽字体</option>
+                          <option value="sans-serif">黑体 (无衬线)</option>
+                          <option value="serif">宋体 (衬线)</option>
+                          <option value="monospace">等宽</option>
                           <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
-                          <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
+                          <option value="'Noto Sans JP', sans-serif">Noto Sans</option>
                         </select>
                       </div>
                       <div className="space-y-1">
                         <label className="block text-xs font-bold text-gray-600">字体粗细</label>
                         <select value={config.fontWeight} onChange={(e) => updateConfig('fontWeight', Number(e.target.value))} className="w-full p-1.5 text-xs border border-gray-300 rounded outline-none bg-white">
-                          <option value="400">常规 (Normal)</option>
-                          <option value="700">粗体 (Bold)</option>
-                          <option value="900">黑体 (Black)</option>
+                          <option value="400">常规</option>
+                          <option value="700">粗体</option>
+                          <option value="900">超粗</option>
                         </select>
                       </div>
                       <div className="space-y-1">
@@ -632,10 +591,111 @@
                     </div>
                   </div>
 
-                  {/* 模块：主字幕与背景颜色 */}
+                  {/* 列 4：颜色与背景 */}
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <label className="flex justify-between text-xs font-bold text-gray-600">
                         <span>主字幕大小</span><span className="text-gray-800">{config.mainFontSize}px</span>
                       </label>
-                      <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value
+                      <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value))} className="w-full" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="block text-xs text-gray-600">字体颜色</label>
+                        <input type="color" value={config.mainFontColor} onChange={(e) => updateConfig('mainFontColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs text-gray-600">描边颜色</label>
+                        <input type="color" value={config.strokeColor} onChange={(e) => updateConfig('strokeColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex justify-between text-xs text-gray-600">
+                        <span>描边粗细</span><span>{config.strokeWidth}px</span>
+                      </label>
+                      <input type="range" min="0" max="20" value={config.strokeWidth} onChange={(e) => updateConfig('strokeWidth', Number(e.target.value))} className="w-full" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200">
+                      <div className="space-y-1">
+                        <label className="block text-xs text-gray-600">绿幕背景颜色</label>
+                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs text-gray-600">不透明度(%)</label>
+                        <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm shadow-sm" />
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 下半部分：字幕主显示区域 (整个区域可点击切换模式) */}
+          <div 
+            className="flex-1 relative flex flex-col w-full h-full overflow-hidden transition-all duration-300 shadow-inner cursor-pointer"
+            style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
+            onClick={() => setShowUI(!showUI)}
+            title={showUI ? "点击进入纯净模式" : "点击显示控制面板"}
+          >
+            {/* 隐藏UI模式下的轻量级提示 */}
+            {!showUI && (
+              <div className="absolute top-0 left-0 w-full h-32 z-50 group flex items-center justify-center pointer-events-none">
+                <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-8 py-3 rounded-full transition-opacity shadow-2xl backdrop-blur-sm font-bold tracking-widest border border-white/20">
+                  点击屏幕任意区域恢复控制面板
+                </div>
+              </div>
+            )}
+
+            {/* 字幕滚动内容区 */}
+            <div className="flex-1 w-full overflow-y-auto px-4 sm:px-12 flex flex-col items-center hide-scrollbar safe-pb pointer-events-none">
+              <div className={`w-full flex flex-col gap-6 max-w-6xl pt-12 pb-12 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                
+                {history.length === 0 && !currentTranscript && (
+                  <div className="text-gray-500 mt-10 opacity-70 font-bold tracking-wider" style={{ fontSize: '24px' }}>
+                    {isListening ? "🎙️ 正在聆听声音输入..." : (showUI ? "点击左上角麦克风开启识别" : "点击屏幕展开面板并开启识别")}
+                  </div>
+                )}
+
+                {/* 历史记录 */}
+                {history.map((item) => (
+                  <div key={item.id} className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor }}>
+                      {item.original}
+                    </div>
+                    {config.trans1Enabled && item.t1 && (
+                      <div style={{ ...baseTextStyle, fontSize: `${config.trans1Size}px`, color: config.trans1Color }}>
+                        {item.t1}
+                      </div>
+                    )}
+                    {config.trans2Enabled && item.t2 && (
+                      <div style={{ ...baseTextStyle, fontSize: `${config.trans2Size}px`, color: config.trans2Color }}>
+                        {item.t2}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* 当前临时句子 */}
+                {currentTranscript && (
+                  <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
+                      {currentTranscript}
+                    </div>
+                  </div>
+                )}
+                
+                <div ref={scrollRef} className="h-4 w-full shrink-0" />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
