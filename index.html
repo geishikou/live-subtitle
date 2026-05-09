@@ -360,20 +360,26 @@
           {showUI && (
             <div className="flex flex-col shrink-0 w-full z-40 bg-white shadow-md transition-all relative">
               
-              {/* 控制工具栏 */}
-              <div className="flex flex-wrap items-center gap-3 px-4 py-3 safe-pt border-b border-gray-200">
-                <button
-                  onClick={toggleListening}
-                  className={`flex items-center gap-2 px-5 py-2 rounded-full font-bold shadow-md transition-colors ${
-                    isListening ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'
-                  }`}
-                >
-                  <i className={`ph-bold text-lg ${isListening ? 'ph-microphone-slash' : 'ph-microphone'}`}></i>
-                  {isListening ? '停止识别' : '开始识别'}
-                </button>
+              {/* 控制工具栏 (已合并所有快捷操作) */}
+              <div className="flex flex-wrap items-center gap-2.5 px-4 py-2 safe-pt border-b border-gray-200">
+                
+                {/* 开始/停止识别按钮 (纯图标+Tooltip) */}
+                <div className="relative group flex items-center">
+                  <button
+                    onClick={toggleListening}
+                    className={`flex items-center justify-center p-2.5 rounded-full font-bold shadow-sm transition-colors ${
+                      isListening ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'
+                    }`}
+                  >
+                    <i className={`ph-bold text-lg block ${isListening ? 'ph-microphone-slash' : 'ph-microphone'}`}></i>
+                  </button>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                    {isListening ? '停止识别' : '开始识别'}
+                  </div>
+                </div>
 
                 {/* 快捷切换主要语种下拉框 */}
-                <div className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-full px-3 shadow-inner transition-colors border border-gray-200">
+                <div className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 shadow-inner transition-colors border border-gray-200">
                   <select 
                     value={config.language} 
                     onChange={(e) => updateConfig('language', e.target.value)}
@@ -391,7 +397,7 @@
 
                 {/* 动态显示的翻译 1 快捷切换框 */}
                 {config.trans1Enabled && (
-                  <div className="flex items-center bg-blue-50 hover:bg-blue-100 rounded-full px-3 shadow-inner transition-colors border border-blue-200">
+                  <div className="flex items-center bg-blue-50 hover:bg-blue-100 rounded-full px-2.5 shadow-inner transition-colors border border-blue-200">
                     <select 
                       value={config.trans1Lang} 
                       onChange={(e) => updateConfig('trans1Lang', e.target.value)}
@@ -410,7 +416,7 @@
 
                 {/* 动态显示的翻译 2 快捷切换框 */}
                 {config.trans2Enabled && (
-                  <div className="flex items-center bg-purple-50 hover:bg-purple-100 rounded-full px-3 shadow-inner transition-colors border border-purple-200">
+                  <div className="flex items-center bg-purple-50 hover:bg-purple-100 rounded-full px-2.5 shadow-inner transition-colors border border-purple-200">
                     <select 
                       value={config.trans2Lang} 
                       onChange={(e) => updateConfig('trans2Lang', e.target.value)}
@@ -427,59 +433,54 @@
                   </div>
                 )}
 
-                <div className="flex-1"></div> {/* 占位，把后面的按钮推到右侧 */}
+                <div className="flex-1"></div> {/* 弹性占位，把后面的按钮推到右侧 */}
 
-                <button
-                  onClick={() => setHistory([])}
-                  className="flex items-center gap-2 px-5 py-2 rounded-full bg-white text-gray-800 border border-gray-200 shadow-sm hover:bg-gray-50 font-bold transition-colors"
-                >
-                  <i className="ph-bold ph-trash text-lg"></i> 清空字幕
-                </button>
-              </div>
+                {/* 右侧：4个纯图标控制按钮合并组 */}
+                <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-200">
+                  {/* 导入配置 */}
+                  <div className="relative group flex items-center">
+                    <label className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-100 rounded-md cursor-pointer transition-colors block">
+                      <i className="ph-bold ph-folder-open text-base block"></i>
+                      <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                    </label>
+                    <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">导入配置</div>
+                  </div>
+                  
+                  {/* 导出配置 */}
+                  <div className="relative group flex items-center">
+                    <button onClick={handleExport} className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-100 rounded-md transition-colors">
+                      <i className="ph-bold ph-floppy-disk text-base block"></i>
+                    </button>
+                    <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">导出配置</div>
+                  </div>
 
-              {/* 展开的设置面板内容 */}
-              <div className="flex flex-col w-full max-h-[50vh] bg-gray-50 border-b border-gray-300">
-                <div className="flex justify-between items-center px-6 py-2 border-b border-gray-200 bg-white shrink-0">
-                  <span className="font-bold text-gray-700 text-sm flex items-center gap-1">
-                    <i className="ph-bold ph-sliders text-base"></i> 个性化设置
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {/* 导入配置按钮 */}
-                    <div className="relative group flex items-center">
-                      <label className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors block border border-gray-200">
-                        <i className="ph-bold ph-folder-open text-base block"></i>
-                        <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-                      </label>
-                      <div className="absolute top-full right-0 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">导入配置</div>
-                    </div>
-                    
-                    {/* 导出配置按钮 */}
-                    <div className="relative group flex items-center">
-                      <button onClick={handleExport} className="text-gray-600 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors border border-gray-200">
-                        <i className="ph-bold ph-floppy-disk text-base block"></i>
-                      </button>
-                      <div className="absolute top-full right-0 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">导出配置</div>
-                    </div>
+                  {/* 清空字幕 */}
+                  <div className="relative group flex items-center">
+                    <button onClick={() => setHistory([])} className="text-gray-600 hover:text-orange-600 p-1.5 hover:bg-orange-100 rounded-md transition-colors">
+                      <i className="ph-bold ph-trash text-base block"></i>
+                    </button>
+                    <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">清空字幕</div>
+                  </div>
 
-                    <div className="w-px h-5 bg-gray-300 mx-1"></div>
-                    
-                    {/* 隐藏面板按钮 */}
-                    <div className="relative group flex items-center">
-                      <button onClick={() => setShowUI(false)} className="text-gray-600 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition-colors border border-gray-200">
-                        <i className="ph-bold ph-x text-base block"></i>
-                      </button>
-                      <div className="absolute top-full right-0 mt-1 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">隐藏UI (进入纯净模式)</div>
-                    </div>
+                  <div className="w-px h-4 bg-gray-300 mx-0.5"></div>
+                  
+                  {/* 隐藏UI (进入纯净模式) */}
+                  <div className="relative group flex items-center">
+                    <button onClick={() => setShowUI(false)} className="text-gray-600 hover:text-red-600 p-1.5 hover:bg-red-100 rounded-md transition-colors">
+                      <i className="ph-bold ph-x text-base block"></i>
+                    </button>
+                    <div className="absolute top-full right-0 mt-2 whitespace-nowrap bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">隐藏面板 (OBS模式)</div>
                   </div>
                 </div>
+              </div>
 
-                {/* 4列网格排版 */}
-                <div className="p-6 overflow-y-auto custom-scrollbar flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              {/* 展开的设置面板内容 (已去除分类标题与头部，排版更紧凑) */}
+              <div className="flex flex-col w-full max-h-[50vh] bg-gray-50 border-b border-gray-300">
+                <div className="p-4 overflow-y-auto custom-scrollbar flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   
                   {/* 模块：语音与API */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-microphone-stage text-base"></i> 语音与翻译 API</h3>
-                    <div className="space-y-2">
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-gray-700">识别语言</label>
                       <select value={config.language} onChange={(e) => updateConfig('language', e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-white shadow-sm">
                         <option value="zh-CN">中文 (简体)</option>
@@ -490,8 +491,7 @@
                       </select>
                     </div>
 
-                    {/* 新增：呼吸停顿检测 */}
-                    <div className="space-y-2 pt-2 border-t border-gray-200">
+                    <div className="space-y-1.5 pt-2 border-t border-gray-200">
                       <label className="flex justify-between text-xs font-bold text-gray-700">
                         <span>断句等待时间 (呼吸检测)</span>
                         <span className="text-blue-600">{config.pauseDuration} ms</span>
@@ -502,10 +502,10 @@
                         onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
                         className="w-full accent-blue-500" 
                       />
-                      <p className="text-[10px] text-gray-500 leading-tight">通过检测您的短暂呼吸停顿进行完整意群断句。<br/>• 设得越小：翻译越快，但可能会把一句话拆碎。<br/>• 设得越大：句子越完整，但出字幕较慢。<br/>* 建议值：800ms ~ 1200ms</p>
+                      <p className="text-[10px] text-gray-500 leading-tight">建议值：800ms ~ 1200ms</p>
                     </div>
 
-                    <div className="space-y-2 pt-2 border-t border-gray-200">
+                    <div className="space-y-1.5 pt-2 border-t border-gray-200">
                       <label className="block text-xs font-bold text-gray-700">Google Apps Script (GAS) URL</label>
                       <input 
                         type="text" 
@@ -518,9 +518,7 @@
                   </div>
 
                   {/* 模块：翻译目标 */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-globe-hemisphere-west text-base"></i> 多语言翻译</h3>
-                    
+                  <div className="space-y-3">
                     {/* 翻译 1 */}
                     <div className="p-3 bg-white border border-gray-200 shadow-sm rounded-xl space-y-2">
                       <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-blue-800">
@@ -571,8 +569,7 @@
                   </div>
 
                   {/* 模块：排版与布局 */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-text-aa text-base"></i> 字体与排版</h3>
+                  <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="block text-xs font-bold text-gray-600">字体类型</label>
@@ -636,112 +633,9 @@
                   </div>
 
                   {/* 模块：主字幕与背景颜色 */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><i className="ph-bold ph-palette text-base"></i> 颜色与背景</h3>
+                  <div className="space-y-3">
                     <div className="space-y-1">
                       <label className="flex justify-between text-xs font-bold text-gray-600">
                         <span>主字幕大小</span><span className="text-gray-800">{config.mainFontSize}px</span>
                       </label>
-                      <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value))} className="w-full" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">字体颜色</label>
-                        <input type="color" value={config.mainFontColor} onChange={(e) => updateConfig('mainFontColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">描边颜色</label>
-                        <input type="color" value={config.strokeColor} onChange={(e) => updateConfig('strokeColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="flex justify-between text-xs text-gray-600">
-                        <span>描边粗细</span><span>{config.strokeWidth}px</span>
-                      </label>
-                      <input type="range" min="0" max="20" value={config.strokeWidth} onChange={(e) => updateConfig('strokeWidth', Number(e.target.value))} className="w-full" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200">
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">绿幕背景颜色</label>
-                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-8 p-0 border-0 rounded cursor-pointer shadow-sm" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="block text-xs text-gray-600">背景不透明度(%)</label>
-                        <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm shadow-sm" />
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 下半部分：字幕主显示区域 (整个区域可点击切换模式) */}
-          <div 
-            className="flex-1 relative flex flex-col w-full h-full overflow-hidden transition-all duration-300 shadow-inner cursor-pointer"
-            style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
-            onClick={() => setShowUI(!showUI)}
-            title={showUI ? "点击进入纯净模式" : "点击显示控制面板"}
-          >
-            {/* 隐藏UI模式下的轻量级提示 */}
-            {!showUI && (
-              <div className="absolute top-0 left-0 w-full h-32 z-50 group flex items-center justify-center pointer-events-none">
-                <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-8 py-3 rounded-full transition-opacity shadow-2xl backdrop-blur-sm font-bold tracking-widest border border-white/20">
-                  点击屏幕任意区域恢复控制面板
-                </div>
-              </div>
-            )}
-
-            {/* 字幕滚动内容区 */}
-            <div className="flex-1 w-full overflow-y-auto px-4 sm:px-12 flex flex-col items-center hide-scrollbar safe-pb pointer-events-none">
-              <div className={`w-full flex flex-col gap-6 max-w-6xl pt-12 pb-12 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                
-                {history.length === 0 && !currentTranscript && (
-                  <div className="text-gray-500 mt-10 opacity-70 font-bold tracking-wider" style={{ fontSize: '24px' }}>
-                    {isListening ? "🎙️ 正在聆听声音输入..." : (showUI ? "点击左上角开启识别" : "点击屏幕展开面板并开启识别")}
-                  </div>
-                )}
-
-                {/* 历史记录（包含原文与翻译） */}
-                {history.map((item) => (
-                  <div key={item.id} className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor }}>
-                      {item.original}
-                    </div>
-                    {config.trans1Enabled && item.t1 && (
-                      <div style={{ ...baseTextStyle, fontSize: `${config.trans1Size}px`, color: config.trans1Color }}>
-                        {item.t1}
-                      </div>
-                    )}
-                    {config.trans2Enabled && item.t2 && (
-                      <div style={{ ...baseTextStyle, fontSize: `${config.trans2Size}px`, color: config.trans2Color }}>
-                        {item.t2}
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {/* 当前正在说的临时句子 */}
-                {currentTranscript && (
-                  <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
-                      {currentTranscript}
-                    </div>
-                  </div>
-                )}
-                
-                {/* 底部定位锚点 */}
-                <div ref={scrollRef} className="h-4 w-full shrink-0" />
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
-</body>
-</html>
+                      <input type="range" min="16" max="100" value={config.mainFontSize} onChange={(e) => updateConfig('mainFontSize', Number(e.target.value
