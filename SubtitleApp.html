@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>实时滚动字幕与翻译 (紧凑纯净版)</title>
+  <title>实时滚动字幕与翻译 (原生高效版)</title>
   
   <!-- 引入 React 和 ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -41,7 +41,6 @@
     const defaultConfig = {
       language: 'zh-CN',
       gasUrl: '',
-      pauseDuration: 800, 
       
       trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
       trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -124,13 +123,11 @@
       // --- Refs ---
       const recognitionRef = useRef(null);
       const scrollRef = useRef(null);
-      const silenceTimerRef = useRef(null);
       
       const stateRef = useRef({ 
         isListening, 
         gasUrl: config.gasUrl, 
         language: config.language,
-        pauseDuration: config.pauseDuration,
         trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
         trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
       });
@@ -140,11 +137,10 @@
           isListening, 
           gasUrl: config.gasUrl, 
           language: config.language,
-          pauseDuration: config.pauseDuration,
           trans1Enabled: config.trans1Enabled, trans1Lang: config.trans1Lang, 
           trans2Enabled: config.trans2Enabled, trans2Lang: config.trans2Lang 
         };
-      }, [isListening, config.gasUrl, config.language, config.pauseDuration, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
+      }, [isListening, config.gasUrl, config.language, config.trans1Enabled, config.trans1Lang, config.trans2Enabled, config.trans2Lang]);
 
       // --- 翻译 API 调用 ---
       const fetchTranslation = async (text, targetLang) => {
@@ -196,7 +192,7 @@
         );
       };
 
-      // --- 初始化语音识别 ---
+      // --- 初始化语音识别 (完全原生判定，无任何断句干预) ---
       useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
@@ -210,26 +206,23 @@
         recognitionRef.current = recognition;
 
         recognition.onresult = (event) => {
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
           let currentInterim = '';
           let currentFinals = '';
 
+          // 完全依赖浏览器的 isFinal 判定
           for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) currentFinals += event.results[i][0].transcript;
-            else currentInterim += event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              currentFinals += event.results[i][0].transcript;
+            } else {
+              currentInterim += event.results[i][0].transcript;
+            }
           }
 
-          if (currentFinals) commitText(currentFinals);
+          if (currentFinals) {
+            commitText(currentFinals);
+          }
+          
           setCurrentTranscript(currentInterim);
-
-          if (currentInterim && stateRef.current.isListening && stateRef.current.pauseDuration > 0) {
-            silenceTimerRef.current = setTimeout(() => {
-              if (recognitionRef.current && stateRef.current.isListening) {
-                try { recognitionRef.current.stop(); } catch (e) {}
-              }
-            }, stateRef.current.pauseDuration);
-          }
         };
 
         recognition.onerror = (event) => {
@@ -251,7 +244,6 @@
 
         return () => {
           if (recognitionRef.current) recognitionRef.current.stop();
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         };
       }, []);
 
@@ -274,7 +266,6 @@
         } else {
           recognitionRef.current.stop();
           setCurrentTranscript('');
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         }
       };
 
@@ -322,7 +313,7 @@
               {/* 控制工具栏 (极简设计) */}
               <div className="flex flex-wrap items-center gap-2.5 px-4 py-2 safe-pt border-b border-gray-200">
                 
-                {/* 1. 开始/停止识别按钮 (纯图标+Tooltip) */}
+                {/* 开始/停止识别按钮 (纯图标+Tooltip) */}
                 <div className="relative group flex items-center">
                   <button
                     onClick={toggleListening}
@@ -433,24 +424,21 @@
                 </div>
               </div>
 
-              {/* 展开的设置面板内容 (排版更紧凑) */}
+              {/* 展开的设置面板内容 */}
               <div className="flex flex-col w-full max-h-[50vh] bg-gray-50 border-b border-gray-300">
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   
                   {/* 列 1：语音与API */}
                   <div className="space-y-3">
                     <div className="space-y-1.5 pt-1">
-                      <label className="flex justify-between text-xs font-bold text-gray-700">
-                        <span>断句等待时间 (呼吸检测)</span>
-                        <span className="text-blue-600">{config.pauseDuration} ms</span>
-                      </label>
-                      <input 
-                        type="range" min="400" max="2500" step="100" 
-                        value={config.pauseDuration} 
-                        onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
-                        className="w-full accent-blue-500" 
-                      />
-                      <p className="text-[10px] text-gray-500 leading-tight">建议值：800ms ~ 1200ms</p>
+                      <label className="block text-xs font-bold text-gray-700">识别语言</label>
+                      <select value={config.language} onChange={(e) => updateConfig('language', e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-white shadow-sm">
+                        <option value="zh-CN">中文 (简体)</option>
+                        <option value="zh-TW">中文 (繁體)</option>
+                        <option value="ja-JP">日本語</option>
+                        <option value="en-US">English (US)</option>
+                        <option value="ko-KR">한국어</option>
+                      </select>
                     </div>
 
                     <div className="space-y-1.5 pt-3 border-t border-gray-200">
