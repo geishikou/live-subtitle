@@ -53,7 +53,7 @@
         language: 'zh-CN',
         gasUrl: '',
         pauseDuration: 500, // 断句等待时间，500ms非常迅速
-        vadThreshold: 0.5,  // 恢复科学标准 0.5，防止底噪导致VAD永远处于开启状态
+        vadThreshold: 0.2,  // 核心！恢复 0.2，大幅提升小声音的识别灵敏度
         
         trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
         trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -148,7 +148,7 @@
               body: JSON.stringify({
                 model: 'gpt-4o-mini',
                 messages: [
-                  { role: 'system', content: `You are a real-time translator. Translate to ${targetLang}. Output ONLY the translation. No quotes, no talk.` },
+                  { role: 'system', content: `You are a professional subtitle translator. Translate the user's speech to ${targetLang}. Output ONLY the translation.` },
                   { role: 'user', content: text }
                 ],
                 temperature: 0.1 
@@ -247,7 +247,7 @@
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI WebRTC Realtime (高灵敏，极速流式)
+          // 引擎 2：OpenAI WebRTC Realtime (纯转写脱敏版，彻底解决吃字BUG)
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -258,9 +258,7 @@
 
             const initRealtimeWebRTC = async () => {
               try {
-                // 【核心修复1】：彻底恢复浏览器的硬件级智能辅助！
-                // noiseSuppression过滤风扇底噪，autoGainControl自动放大您轻柔的声音。
-                // 这样喂给 OpenAI 的音频就像原生引擎一样干净、清晰，绝不再“耳背”。
+                // 开启硬件增益和降噪，像原生引擎一样保证小声音的清晰抓取
                 localStream = await navigator.mediaDevices.getUserMedia({ 
                   audio: {
                     echoCancellation: true,
@@ -285,67 +283,50 @@
                   
                   if (msg.type === "error") {
                     console.error("OpenAI API Error:", msg.error);
-                    setRealtimeTurn({ id: Date.now(), streaming: `❌ API 错误: ${msg.error?.message}`, original: '' });
+                    setRealtimeTurn({ id: Date.now(), streaming: `❌ API 错误: ${msg.error?.message}` });
                     setTimeout(() => { if (isActive) setRealtimeTurn(null); }, 5000);
                     return;
                   }
                   
                   if (msg.type === "session.created") {
-                    let langTarget = "its original language";
-                    if (stateRef.current.language === 'zh-CN') langTarget = "Simplified Chinese (简体中文)";
-                    if (stateRef.current.language === 'zh-TW') langTarget = "Traditional Chinese (繁體中文)";
-
-                    const instructions = `You are a pure speech-to-text transcriber. Output EXACTLY what the user says in ${langTarget}. NEVER act as an assistant, NEVER answer questions, NEVER converse. If the audio is silence or noise, output NOTHING.`;
-
                     dataChannel.send(JSON.stringify({
                       type: "session.update",
                       session: {
-                        modalities: ["text"],
-                        instructions: instructions,
                         input_audio_transcription: { model: "whisper-1" },
                         turn_detection: { 
                           type: "server_vad",
-                          threshold: stateRef.current.vadThreshold || 0.5, // 恢复到 0.5。过低会导致永不断句丢数据
+                          threshold: stateRef.current.vadThreshold || 0.2, // 确保极高灵敏度，捕捉气声
                           prefix_padding_ms: 300,
-                          silence_duration_ms: stateRef.current.pauseDuration || 500 
+                          silence_duration_ms: stateRef.current.pauseDuration || 500,
+                          create_response: false // 【终极杀招】：完全禁止模型生成“回复”！只让它当纯转写器！彻底消除吃字冲突和延迟！
                         } 
                       }
                     }));
                   }
 
                   if (msg.type === "input_audio_buffer.speech_started") {
-                    setRealtimeTurn({ id: Date.now(), streaming: '🎙️ ...', original: '' });
+                    // 当人声响起，立刻给出一个安全的占位符，绝不干扰上一回合
+                    setRealtimeTurn({ id: Date.now(), streaming: '🎙️ ...' });
                   }
 
+                  // 【核心改动】：不要等什么大模型回复完成（response.done），只要底层 Whisper 转写一结束，立刻获取并上屏！
                   if (msg.type === "conversation.item.input_audio_transcription.completed") {
-                    // Whisper 底层识别结束
-                    setRealtimeTurn(prev => prev ? { ...prev, original: msg.transcript } : prev);
+                    const transcriptText = msg.transcript ? msg.transcript.trim() : '';
+                    
+                    // 防幻觉盾牌
+                    const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe|ご視聴|視聴ありがとう/i.test(transcriptText);
+                    
+                    if (transcriptText && !isHallucination) {
+                      commitText(transcriptText); // 把抓到的纯正原文直接推给并发翻译引擎
+                    }
+                    
+                    // 无论成功与否，清空状态，准备迎接随时到来的下一句话，再也不会卡死了！
+                    setRealtimeTurn(null);
                   }
 
-                  if (msg.type === "response.text.delta") {
-                    // 流式动态显示
-                    setRealtimeTurn(prev => {
-                      if (!prev) return prev;
-                      let currentText = prev.streaming === '🎙️ ...' ? '' : prev.streaming;
-                      return { ...prev, streaming: currentText + msg.delta };
-                    });
-                  }
-
-                  if (msg.type === "response.done") {
-                    // 【核心修复2】：VAD判定断句结束。优先取精准的 original 文本
-                    setRealtimeTurn(prev => {
-                      if (prev) {
-                        let streamText = prev.streaming === '🎙️ ...' ? '' : prev.streaming;
-                        const finalText = (prev.original && prev.original.trim()) ? prev.original.trim() : streamText.trim();
-                        
-                        const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe|ご視聴|視聴ありがとう/i.test(finalText);
-                        
-                        if (finalText && !isHallucination) {
-                          setTimeout(() => commitText(finalText), 0);
-                        }
-                      }
-                      return null; // 瞬间清空当前占位，保证连续说话不卡屏
-                    });
+                  // 静音或杂音过高导致转写失败时，也安全重置状态
+                  if (msg.type === "conversation.item.input_audio_transcription.failed") {
+                    setRealtimeTurn(null);
                   }
                 });
 
@@ -596,7 +577,7 @@
                             onChange={(e) => updateConfig('vadThreshold', Number(e.target.value))} 
                             className="w-full accent-blue-500" 
                           />
-                          <p className="text-[10px] text-gray-500 leading-tight">如果发现长段话被忽略（不断句），说明环境杂音骗过了VAD，请调大数值！建议：0.5</p>
+                          <p className="text-[10px] text-gray-500 leading-tight">数值越小越能捕捉极小声讲话。建议：0.2</p>
                         </div>
                         <div className="space-y-1.5">
                           <label className="flex justify-between text-xs font-bold text-gray-700">
@@ -796,7 +777,7 @@
                 {history.length === 0 && !currentTranscript && !realtimeTurn && (
                   <div className="text-gray-500 mt-10 opacity-70 font-bold tracking-wider text-2xl text-center">
                     {isListening 
-                      ? (config.engine === 'openai' ? "🌐 OpenAI 实时流引擎已连接，请说话..." : "🎙️ 正在聆听声音输入...") 
+                      ? (config.engine === 'openai' ? "🌐 OpenAI 纯转写引擎已连接，请说话..." : "🎙️ 正在聆听声音输入...") 
                       : (showUI ? "点击左上角麦克风开启识别" : "点击屏幕展开面板并开启识别")}
                   </div>
                 )}
@@ -833,7 +814,7 @@
                 {realtimeTurn && config.engine === 'openai' && (
                   <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto transition-all" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
                     <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
-                      {realtimeTurn.streaming || (realtimeTurn.id && '🎙️ ...')}
+                      {realtimeTurn.streaming}
                     </div>
                   </div>
                 )}
