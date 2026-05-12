@@ -251,7 +251,7 @@
           
           // ----------------------------------------------------
           // 引擎 2：OpenAI 官方稳定 Audio API (高精度 VAD 切片 + Whisper 转写)
-          // 绝对不会像大语言模型一样自作主张跟你对话
+          // 加入防静音幻觉过滤机制
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -285,7 +285,7 @@
                   const audioBlob = new Blob(chunks, { type: mimeType });
                   chunks = [];
 
-                  // 如果录制的音频块有足够的数据(滤除极短杂音)，发给 OpenAI Whisper
+                  // 录制文件必须大于一定体积才处理，避免处理无用静音切片
                   if (audioBlob.size > 1000) {
                      processAudioSegment(audioBlob);
                   } else {
@@ -301,11 +301,23 @@
                 // 处理音频块发送给 Whisper /v1/audio/transcriptions
                 const processAudioSegment = async (blob) => {
                   const formData = new FormData();
-                  // 根据 MIME 类型指定扩展名，确保 API 解析正确
                   formData.append('file', blob, 'audio' + (mimeType.includes('mp4') ? '.mp4' : '.webm'));
                   formData.append('model', 'whisper-1');
                   
-                  // 映射标准的 ISO 语言代码供 Whisper 使用以提升准确度
+                  // 第一重保险：强行指定 temperature 降低模型脑补和幻觉的发散性
+                  formData.append('temperature', '0'); 
+                  
+                  // 第二重保险：根据用户选择的简/繁体动态生成 Prompt，强制 Whisper 统一输出格式，同时压制静音幻觉
+                  let whisperPrompt = '这是一段清晰的语音，请准确转写。如果遇到静音、底噪或无意义声音请保持空白，绝对不要输出“谢谢观看”、“请订阅”、“字幕由Amara.org社区提供”、“明镜与点点”等无关字幕。';
+                  
+                  if (stateRef.current.language === 'zh-CN') {
+                    whisperPrompt = '这是一段简体中文语音，请务必严格使用简体中文（Simplified Chinese）进行转写输出。如果遇到静音、底噪或无意义声音请保持空白，绝对不要输出“谢谢观看”、“请订阅”、“字幕由Amara.org社区提供”、“明镜与点点”等无关字幕。';
+                  } else if (stateRef.current.language === 'zh-TW') {
+                    whisperPrompt = '這是一段繁體中文語音，請務必嚴格使用繁體中文（Traditional Chinese）進行轉寫輸出。如果遇到靜音、底噪或無意義聲音請保持空白，絕對不要輸出“謝謝觀看”、“請訂閱”、“字幕由Amara.org社區提供”、“明鏡與點點”等無關字幕。';
+                  }
+                  
+                  formData.append('prompt', whisperPrompt);
+                  
                   const langMap = { 'zh-CN': 'zh', 'zh-TW': 'zh', 'en-US': 'en', 'ja-JP': 'ja', 'ko-KR': 'ko' };
                   const isoLang = langMap[stateRef.current.language] || 'zh';
                   formData.append('language', isoLang);
@@ -322,10 +334,19 @@
                     
                     const data = await res.json();
                     
-                    if (res.ok && data.text && data.text.trim()) {
-                      setRealtimeTurn(null);
-                      // 这里拿到的 100% 绝对是您的原话转写，直接丢去并发翻译
-                      commitText(data.text.trim());
+                    if (res.ok && data.text) {
+                      let transcribedText = data.text.trim();
+                      
+                      // 第三重致命保险：前端硬过滤！一旦检测到经典的静音幻觉文本，直接静默抛弃
+                      const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe/i.test(transcribedText);
+                      
+                      if (transcribedText && !isHallucination) {
+                        setRealtimeTurn(null);
+                        commitText(transcribedText);
+                      } else {
+                        // 命中幻觉或空字符串，默默扔掉，不在界面显示
+                        setRealtimeTurn(null);
+                      }
                     } else {
                       setRealtimeTurn(null);
                     }
