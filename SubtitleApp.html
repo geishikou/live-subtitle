@@ -52,7 +52,7 @@
       const [currentTranscript, setCurrentTranscript] = useState('');
       
       // 用于 OpenAI Realtime 的流式状态
-      const [realtimeTurn, setRealtimeTurn] = useState(null); // { id, streaming }
+      const [realtimeTurn, setRealtimeTurn] = useState(null); // { id, streaming, original }
 
       // 统一 UI 显示状态（true 为展开控制，false 为纯净模式）
       const [showUI, setShowUI] = useState(true);
@@ -234,7 +234,7 @@
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI WebRTC Realtime (转写与翻译解耦版)
+          // 引擎 2：OpenAI WebRTC Realtime (严格隔离对话版)
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -255,38 +255,53 @@
                   const msg = JSON.parse(e.data);
                   
                   if (msg.type === "session.created") {
-                    // 核心解耦指令：强迫 Realtime API 只做流式原文转写，不做翻译！
-                    const instructions = "You are an expert transcriber. Accurately transcribe the user's speech in its original language. Output ONLY the exact transcribed text, without any translation or formatting.";
+                    // 核心保险 1：用极为苛刻的 Prompt 要求它当复读机，禁止对话
+                    const instructions = `You are a pure speech-to-text transcriber. 
+                    Rule 1: EXACTLY REPEAT the user's speech word-for-word in the original language.
+                    Rule 2: NEVER act as an assistant. NEVER answer questions. NEVER converse.
+                    Rule 3: DO NOT translate.
+                    Your only output should be the exact transcribed text of the input audio.`;
 
                     dataChannel.send(JSON.stringify({
                       type: "session.update",
                       session: {
                         modalities: ["text"],
                         instructions: instructions,
+                        temperature: 0.0, // 强制降温到0，彻底封锁自我发挥和幻觉
+                        input_audio_transcription: { model: "whisper-1" }, // 要求后台同步进行纯语音到文本解析
                         turn_detection: {
-                          type: "server_vad", // 完全使用 OpenAI 服务端极其强大的智能静音检测
+                          type: "server_vad",
                           threshold: 0.5,
                           prefix_padding_ms: 300,
-                          silence_duration_ms: 800 // 底层默认断句检测，无需 UI 干预
+                          silence_duration_ms: stateRef.current.pauseDuration || 800
                         }
                       }
                     }));
                   }
 
                   if (msg.type === "input_audio_buffer.speech_started") {
-                    setRealtimeTurn({ id: Date.now(), streaming: '' });
+                    setRealtimeTurn({ id: Date.now(), streaming: '', original: '' });
+                  }
+
+                  // 核心保险 2：静默接收底层真实的 Whisper 转写结果，不会有任何大语言模型加工
+                  if (msg.type === "conversation.item.input_audio_transcription.completed") {
+                    setRealtimeTurn(prev => prev ? { ...prev, original: msg.transcript } : { id: Date.now(), streaming: '', original: msg.transcript });
                   }
 
                   if (msg.type === "response.text.delta") {
-                    // 流式获取用户正在说的原文文字
+                    // 屏幕动画：流式展示大模型推测的文本
                     setRealtimeTurn(prev => prev ? { ...prev, streaming: prev.streaming + msg.delta } : prev);
                   }
 
                   if (msg.type === "response.done") {
-                    // 一句话说完，将原文交由 commitText 统一进行并发双语翻译
+                    // 核心保险 3：当大模型逼逼叨完后，优先使用底层最纯净的 `original` 文本拿去翻译！
                     setRealtimeTurn(prev => {
-                      if (prev && prev.streaming.trim()) {
-                        commitText(prev.streaming.trim());
+                      const finalText = (prev && prev.original && prev.original.trim()) 
+                        ? prev.original.trim() 
+                        : (prev && prev.streaming ? prev.streaming.trim() : '');
+                        
+                      if (finalText) {
+                        commitText(finalText);
                       }
                       return null;
                     });
@@ -296,7 +311,6 @@
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
 
-                // 自动补全 URL 路径
                 let rtcUrl = stateRef.current.openaiUrl.trim();
                 if (rtcUrl.endsWith('/v1')) rtcUrl = rtcUrl.replace('/v1', '/v1/realtime');
                 else if (!rtcUrl.endsWith('/realtime')) rtcUrl += '/realtime';
@@ -696,94 +710,4 @@
                     <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-200 items-end">
                       <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-gray-600">绿幕背景颜色</label>
-                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-7 p-0 border-0 rounded cursor-pointer shadow-sm" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-bold text-gray-600">不透明度 (%)</label>
-                        <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm shadow-sm h-7 box-border" />
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 下半部分：字幕主显示区域 (整个区域可点击切换模式) */}
-          <div 
-            className="flex-1 relative flex flex-col w-full h-full overflow-hidden transition-all duration-300 shadow-inner cursor-pointer"
-            style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
-            onClick={() => setShowUI(!showUI)}
-            title={showUI ? "点击进入纯净模式" : "点击显示控制面板"}
-          >
-            {/* 隐藏UI模式下的轻量级提示 */}
-            {!showUI && (
-              <div className="absolute top-0 left-0 w-full h-32 z-50 group flex items-center justify-center pointer-events-none">
-                <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-8 py-3 rounded-full transition-opacity shadow-2xl backdrop-blur-sm font-bold tracking-widest border border-white/20">
-                  点击屏幕任意区域恢复控制面板
-                </div>
-              </div>
-            )}
-
-            <div className="flex-1 w-full overflow-y-auto px-4 sm:px-12 flex flex-col items-center hide-scrollbar safe-pb pointer-events-none">
-              <div className={`w-full flex flex-col gap-6 max-w-6xl pt-12 pb-12 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                
-                {history.length === 0 && !currentTranscript && !realtimeTurn && (
-                  <div className="text-gray-500 mt-10 opacity-70 font-bold tracking-wider text-2xl text-center">
-                    {isListening 
-                      ? (config.engine === 'openai' ? "🌐 OpenAI 引擎已连接，等待语音输入..." : "🎙️ 正在聆听声音输入...") 
-                      : (showUI ? "点击左上角麦克风开启识别" : "点击屏幕展开面板并开启识别")}
-                  </div>
-                )}
-
-                {/* 历史记录 */}
-                {history.map((item) => (
-                  <div key={item.id} className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor }}>
-                      {item.original}
-                    </div>
-                    {config.trans1Enabled && item.t1 && (
-                      <div style={{ ...baseTextStyle, fontSize: `${config.trans1Size}px`, color: config.trans1Color }}>
-                        {item.t1}
-                      </div>
-                    )}
-                    {config.trans2Enabled && item.t2 && (
-                      <div style={{ ...baseTextStyle, fontSize: `${config.trans2Size}px`, color: config.trans2Color }}>
-                        {item.t2}
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {/* [原生引擎] 当前临时句子 */}
-                {currentTranscript && config.engine === 'native' && (
-                  <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
-                      {currentTranscript}
-                    </div>
-                  </div>
-                )}
-
-                {/* [OpenAI 引擎] 当前流式抓取输出 */}
-                {realtimeTurn && config.engine === 'openai' && (
-                  <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto transition-all" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: realtimeTurn.streaming ? 0.8 : 0.4 }}>
-                      {realtimeTurn.streaming || '🎙️ 正在倾听...'}
-                    </div>
-                  </div>
-                )}
-                
-                <div ref={scrollRef} className="h-4 w-full shrink-0" />
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
-</body>
-</html>
+                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-7 p-0 border-0 rounded cursor-pointer shadow-
