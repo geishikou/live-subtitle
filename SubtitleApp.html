@@ -44,7 +44,7 @@
     const { useState, useEffect, useRef } = React;
 
     const App = () => {
-      // 默认配置项
+      // 默认配置项 (加入 vadThreshold)
       const defaultConfig = {
         engine: 'native',
         openaiKey: '',
@@ -52,6 +52,8 @@
         
         language: 'zh-CN',
         gasUrl: '',
+        pauseDuration: 500, // 默认降低到500ms，加快出字速度
+        vadThreshold: 0.2,  // 默认0.2，大幅提升小声音的识别灵敏度
         
         trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
         trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -245,7 +247,7 @@
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI WebRTC Realtime (极速流式)
+          // 引擎 2：OpenAI WebRTC Realtime (高灵敏，极速流式)
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -256,8 +258,14 @@
 
             const initRealtimeWebRTC = async () => {
               try {
-                // 【关键修复1】：解除所有底层降噪干预，让麦克风100%灵敏，防止微弱声音被扼杀导致永远不触发
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 【核心优化1】：关闭物理降噪，保留自动增益，防止轻声细语被当做杂音抹除
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                  audio: {
+                    echoCancellation: true,
+                    noiseSuppression: false, // 严禁浏览器抹除小声音
+                    autoGainControl: true    // 自动放大微弱的声音
+                  } 
+                });
                 
                 if (!isActive) {
                   localStream.getTracks().forEach(t => t.stop());
@@ -295,16 +303,15 @@
                         input_audio_transcription: { model: "whisper-1" },
                         turn_detection: { 
                           type: "server_vad",
-                          threshold: 0.5,
+                          threshold: stateRef.current.vadThreshold || 0.2, // 【核心优化2】：灵敏度调参。越低越容易捕捉小声音
                           prefix_padding_ms: 300,
-                          silence_duration_ms: 800 // 【关键修复2】：强制设置 800ms 截断，防止底噪导致模型无限期等待
+                          silence_duration_ms: stateRef.current.pauseDuration || 500 // 【核心优化3】：降低断句延迟，加强实时感
                         } 
                       }
                     }));
                   }
 
                   if (msg.type === "input_audio_buffer.speech_started") {
-                    // 【关键修复3】：恢复安全的视觉反馈，防止页面看起来像卡死，且使用特定占位符以便后续安全剥离
                     setRealtimeTurn({ id: Date.now(), streaming: '🎙️ ...', original: '' });
                   }
 
@@ -315,7 +322,6 @@
                   if (msg.type === "response.text.delta") {
                     setRealtimeTurn(prev => {
                       if (!prev) return prev;
-                      // 动态擦除占位符，拼接真实的文字流
                       let currentText = prev.streaming === '🎙️ ...' ? '' : prev.streaming;
                       return { ...prev, streaming: currentText + msg.delta };
                     });
@@ -324,7 +330,6 @@
                   if (msg.type === "response.done") {
                     setRealtimeTurn(prev => {
                       if (prev) {
-                        // 【关键修复4】：提交前剥离占位符，绝不把它丢给翻译引擎，解决“Extracting... Okay”的报错
                         let streamText = prev.streaming === '🎙️ ...' ? '' : prev.streaming;
                         const finalText = (prev.original && prev.original.trim()) ? prev.original.trim() : streamText.trim();
                         
@@ -346,7 +351,6 @@
                 if (rtcUrl.endsWith('/v1')) rtcUrl = rtcUrl.replace('/v1', '/v1/realtime');
                 else if (!rtcUrl.endsWith('/realtime')) rtcUrl += '/realtime';
                 
-                // 【关键保护】：明确指向具有 WebRTC 稳定支持的模型快照版本
                 const sdpResponse = await fetch(`${rtcUrl}?model=gpt-4o-realtime-preview-2024-12-17`, {
                   method: "POST",
                   body: offer.sdp,
@@ -575,7 +579,36 @@
                             className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-white shadow-sm"
                           />
                         </div>
+                        
+                        {/* 新增：开放灵敏度与断句配置给用户，自由拿捏实时感 */}
+                        <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                          <label className="flex justify-between text-xs font-bold text-gray-700">
+                            <span>麦克风灵敏度 (VAD)</span>
+                            <span className="text-blue-600">{config.vadThreshold}</span>
+                          </label>
+                          <input 
+                            type="range" min="0.1" max="1.0" step="0.1" 
+                            value={config.vadThreshold} 
+                            onChange={(e) => updateConfig('vadThreshold', Number(e.target.value))} 
+                            className="w-full accent-blue-500" 
+                          />
+                          <p className="text-[10px] text-gray-500 leading-tight">数值越小越能捕捉极小声讲话。建议：0.2</p>
+                        </div>
                         <div className="space-y-1.5">
+                          <label className="flex justify-between text-xs font-bold text-gray-700">
+                            <span>断句停顿时间</span>
+                            <span className="text-blue-600">{config.pauseDuration} ms</span>
+                          </label>
+                          <input 
+                            type="range" min="300" max="1500" step="100" 
+                            value={config.pauseDuration} 
+                            onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
+                            className="w-full accent-blue-500" 
+                          />
+                          <p className="text-[10px] text-gray-500 leading-tight">决定出字并送去翻译的实时速度。越小越快，建议：500ms</p>
+                        </div>
+
+                        <div className="space-y-1.5 pt-2 border-t border-gray-200">
                           <label className="block text-xs font-bold text-gray-700">OpenAI Base URL</label>
                           <input 
                             type="text" 
