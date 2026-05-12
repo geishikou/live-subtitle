@@ -44,7 +44,7 @@
     const { useState, useEffect, useRef } = React;
 
     const App = () => {
-      // 默认配置项 (移除 pauseDuration 干预)
+      // 默认配置项
       const defaultConfig = {
         engine: 'native',
         openaiKey: '',
@@ -256,7 +256,15 @@
 
             const initRealtimeWebRTC = async () => {
               try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 加入浏览器底层硬件级别的防噪和回音消除，大幅削减静音幻觉源头
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                  audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                  } 
+                });
+                
                 if (!isActive) {
                   localStream.getTracks().forEach(t => t.stop());
                   return;
@@ -271,6 +279,14 @@
                   if (!isActive) return;
                   const msg = JSON.parse(e.data);
                   
+                  // 捕获官方抛出的错误并弹窗，避免死锁式“空连接”
+                  if (msg.type === "error") {
+                    console.error("OpenAI API Error:", msg.error);
+                    setRealtimeTurn({ id: Date.now(), streaming: `❌ API 错误: ${msg.error?.message || "未知报错，请检查控制台"}`, original: '' });
+                    setTimeout(() => { if (isActive) setRealtimeTurn(null); }, 5000);
+                    return;
+                  }
+                  
                   if (msg.type === "session.created") {
                     // 强力指令：做纯转写器，不对话，强迫语言
                     let langTarget = "its original language";
@@ -279,23 +295,23 @@
 
                     const instructions = `You are a pure speech-to-text transcriber. Output EXACTLY what the user says in ${langTarget}. NEVER act as an assistant, NEVER answer questions, NEVER converse. If the audio is silence or noise, output NOTHING.`;
 
+                    // 注意：这里已彻底剔除会导致连接暴毙的 temperature 限制
                     dataChannel.send(JSON.stringify({
                       type: "session.update",
                       session: {
                         modalities: ["text"],
                         instructions: instructions,
-                        temperature: 0.0, // 杀除幻觉
                         input_audio_transcription: { model: "whisper-1" },
-                        turn_detection: { type: "server_vad" } // 核心：完全交给官方 AI 判断何时断句
+                        turn_detection: { type: "server_vad" } // 完全交给官方 AI 判断何时断句
                       }
                     }));
                   }
 
                   if (msg.type === "input_audio_buffer.speech_started") {
-                    setRealtimeTurn({ id: Date.now(), streaming: '', original: '' });
+                    setRealtimeTurn({ id: Date.now(), streaming: '🎙️ 正在提取...', original: '' });
                   }
 
-                  // 捕捉 Whisper 底层转写，比大模型输出的更准
+                  // 捕捉 Whisper 底层转写，它比大模型的文本流输出更加准确且不易幻觉
                   if (msg.type === "conversation.item.input_audio_transcription.completed") {
                     setRealtimeTurn(prev => prev ? { ...prev, original: msg.transcript } : prev);
                   }
@@ -312,7 +328,7 @@
                         const finalText = (prev.original && prev.original.trim()) ? prev.original.trim() : (prev.streaming ? prev.streaming.trim() : '');
                         
                         // 末端过滤常见的静音幻觉文本，不让它上屏
-                        const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe|ご視聴|視聴ありがとう/i.test(finalText) || finalText.length < 2;
+                        const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe|ご視聴|視聴ありがとう/i.test(finalText);
                         
                         if (finalText && !isHallucination) {
                           setTimeout(() => commitText(finalText), 0);
@@ -339,14 +355,18 @@
                   },
                 });
 
-                if (!sdpResponse.ok) throw new Error(`握手失败: ${sdpResponse.status}`);
+                // 网络级或鉴权级报错抛出
+                if (!sdpResponse.ok) {
+                  const errText = await sdpResponse.text();
+                  throw new Error(`握手失败 (${sdpResponse.status}): ${errText}`);
+                }
                 const answerSdp = await sdpResponse.text();
                 await peerConnection.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
               } catch (err) {
                 if (!isActive) return;
                 console.error("WebRTC Error:", err);
-                alert("OpenAI 连接失败，请检查网络或 Key");
+                alert(`OpenAI 连接失败，请检查网络或 Key:\n${err.message}`);
                 setIsListening(false);
               }
             };
