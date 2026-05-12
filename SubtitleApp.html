@@ -18,9 +18,29 @@
   <!-- 引入 Phosphor 图标库 -->
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
+  <style>
+    @keyframes spin-slow {
+      100% { transform: rotate(360deg); }
+    }
+    .loading-spinner {
+      animation: spin-slow 1.5s linear infinite;
+    }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
+  <!-- 根容器：添加加载中动画，防止 Babel 编译期间白屏恐慌 -->
+  <div id="root">
+    <div style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:#666; background-color:#f3f4f6;">
+      <div style="text-align:center;">
+        <svg class="loading-spinner" style="width:48px; height:48px; margin:0 auto 16px; color:#3b82f6;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle style="opacity:0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path style="opacity:0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p style="font-weight:bold; font-size:16px;">正在加载字幕系统组件，请稍候...</p>
+        <p style="font-size:12px; opacity:0.6; margin-top:8px;">如果长时间未进入，请按 Ctrl + F5 (Cmd + Shift + R) 强制刷新缓存</p>
+      </div>
+    </div>
+  </div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
@@ -294,14 +314,16 @@
                   }
 
                   if (msg.type === "response.done") {
-                    // 核心保险 3：当大模型逼逼叨完后，优先使用底层最纯净的 `original` 文本拿去翻译！
+                    // 核心保险 3：完全剥离 Side Effect 冲突（解决白屏崩溃Bug）。使用 setTimeout 推迟执行，保护 React 渲染队列
                     setRealtimeTurn(prev => {
-                      const finalText = (prev && prev.original && prev.original.trim()) 
-                        ? prev.original.trim() 
-                        : (prev && prev.streaming ? prev.streaming.trim() : '');
-                        
-                      if (finalText) {
-                        commitText(finalText);
+                      if (prev) {
+                        const finalText = (prev.original && prev.original.trim()) 
+                          ? prev.original.trim() 
+                          : (prev.streaming ? prev.streaming.trim() : '');
+                          
+                        if (finalText) {
+                          setTimeout(() => commitText(finalText), 0);
+                        }
                       }
                       return null;
                     });
@@ -710,4 +732,94 @@
                     <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-200 items-end">
                       <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-gray-600">绿幕背景颜色</label>
-                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-7 p-0 border-0 rounded cursor-pointer shadow-
+                        <input type="color" value={config.bgColor} onChange={(e) => updateConfig('bgColor', e.target.value)} className="w-full h-7 p-0 border-0 rounded cursor-pointer shadow-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-600">不透明度 (%)</label>
+                        <input type="number" min="0" max="100" value={config.bgOpacity} onChange={(e) => updateConfig('bgOpacity', Number(e.target.value))} className="w-full p-1 border border-gray-300 rounded outline-none text-sm shadow-sm h-7 box-border" />
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 下半部分：字幕主显示区域 (整个区域可点击切换模式) */}
+          <div 
+            className="flex-1 relative flex flex-col w-full h-full overflow-hidden transition-all duration-300 shadow-inner cursor-pointer"
+            style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
+            onClick={() => setShowUI(!showUI)}
+            title={showUI ? "点击进入纯净模式" : "点击显示控制面板"}
+          >
+            {/* 隐藏UI模式下的轻量级提示 */}
+            {!showUI && (
+              <div className="absolute top-0 left-0 w-full h-32 z-50 group flex items-center justify-center pointer-events-none">
+                <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-8 py-3 rounded-full transition-opacity shadow-2xl backdrop-blur-sm font-bold tracking-widest border border-white/20">
+                  点击屏幕任意区域恢复控制面板
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 w-full overflow-y-auto px-4 sm:px-12 flex flex-col items-center hide-scrollbar safe-pb pointer-events-none">
+              <div className={`w-full flex flex-col gap-6 max-w-6xl pt-12 pb-12 ${verticalMarginClass}`} style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                
+                {history.length === 0 && !currentTranscript && !realtimeTurn && (
+                  <div className="text-gray-500 mt-10 opacity-70 font-bold tracking-wider text-2xl text-center">
+                    {isListening 
+                      ? (config.engine === 'openai' ? "🌐 OpenAI 引擎已连接，等待语音输入..." : "🎙️ 正在聆听声音输入...") 
+                      : (showUI ? "点击左上角麦克风开启识别" : "点击屏幕展开面板并开启识别")}
+                  </div>
+                )}
+
+                {/* 历史记录 */}
+                {history.map((item) => (
+                  <div key={item.id} className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor }}>
+                      {item.original}
+                    </div>
+                    {config.trans1Enabled && item.t1 && (
+                      <div style={{ ...baseTextStyle, fontSize: `${config.trans1Size}px`, color: config.trans1Color }}>
+                        {item.t1}
+                      </div>
+                    )}
+                    {config.trans2Enabled && item.t2 && (
+                      <div style={{ ...baseTextStyle, fontSize: `${config.trans2Size}px`, color: config.trans2Color }}>
+                        {item.t2}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* [原生引擎] 当前临时句子 */}
+                {currentTranscript && config.engine === 'native' && (
+                  <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
+                      {currentTranscript}
+                    </div>
+                  </div>
+                )}
+
+                {/* [OpenAI 引擎] 当前流式抓取输出 */}
+                {realtimeTurn && config.engine === 'openai' && (
+                  <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto transition-all" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: realtimeTurn.streaming ? 0.8 : 0.4 }}>
+                      {realtimeTurn.streaming || '🎙️ 正在倾听...'}
+                    </div>
+                  </div>
+                )}
+                
+                <div ref={scrollRef} className="h-4 w-full shrink-0" />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
