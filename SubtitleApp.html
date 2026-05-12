@@ -205,7 +205,7 @@
         if (isListening) {
           
           // ----------------------------------------------------
-          // 引擎 1：浏览器原生 (大道至简，纯净调用)
+          // 引擎 1：浏览器原生 (大道至简，纯净调用，绝对零干预)
           // ----------------------------------------------------
           if (config.engine === 'native') {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -245,7 +245,7 @@
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI WebRTC Realtime (零延迟流式，官方 VAD)
+          // 引擎 2：OpenAI WebRTC Realtime (极速流式)
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -256,14 +256,8 @@
 
             const initRealtimeWebRTC = async () => {
               try {
-                // 加入浏览器底层硬件级别的防噪和回音消除，大幅削减静音幻觉源头
-                localStream = await navigator.mediaDevices.getUserMedia({ 
-                  audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                  } 
-                });
+                // 【关键修复1】：解除所有底层降噪干预，让麦克风100%灵敏，防止微弱声音被扼杀导致永远不触发
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
                 if (!isActive) {
                   localStream.getTracks().forEach(t => t.stop());
@@ -279,56 +273,61 @@
                   if (!isActive) return;
                   const msg = JSON.parse(e.data);
                   
-                  // 捕获官方抛出的错误并弹窗，避免死锁式“空连接”
                   if (msg.type === "error") {
                     console.error("OpenAI API Error:", msg.error);
-                    setRealtimeTurn({ id: Date.now(), streaming: `❌ API 错误: ${msg.error?.message || "未知报错，请检查控制台"}`, original: '' });
+                    setRealtimeTurn({ id: Date.now(), streaming: `❌ API 错误: ${msg.error?.message}`, original: '' });
                     setTimeout(() => { if (isActive) setRealtimeTurn(null); }, 5000);
                     return;
                   }
                   
                   if (msg.type === "session.created") {
-                    // 强力指令：做纯转写器，不对话，强迫语言
                     let langTarget = "its original language";
                     if (stateRef.current.language === 'zh-CN') langTarget = "Simplified Chinese (简体中文)";
                     if (stateRef.current.language === 'zh-TW') langTarget = "Traditional Chinese (繁體中文)";
 
                     const instructions = `You are a pure speech-to-text transcriber. Output EXACTLY what the user says in ${langTarget}. NEVER act as an assistant, NEVER answer questions, NEVER converse. If the audio is silence or noise, output NOTHING.`;
 
-                    // 注意：这里已彻底剔除会导致连接暴毙的 temperature 限制
                     dataChannel.send(JSON.stringify({
                       type: "session.update",
                       session: {
                         modalities: ["text"],
                         instructions: instructions,
                         input_audio_transcription: { model: "whisper-1" },
-                        turn_detection: { type: "server_vad" } // 完全交给官方 AI 判断何时断句
+                        turn_detection: { 
+                          type: "server_vad",
+                          threshold: 0.5,
+                          prefix_padding_ms: 300,
+                          silence_duration_ms: 800 // 【关键修复2】：强制设置 800ms 截断，防止底噪导致模型无限期等待
+                        } 
                       }
                     }));
                   }
 
                   if (msg.type === "input_audio_buffer.speech_started") {
-                    // 【关键修复】：彻底移除生硬的占位符提示，让流式文字从完全空白开始自然显现
-                    setRealtimeTurn({ id: Date.now(), streaming: '', original: '' });
+                    // 【关键修复3】：恢复安全的视觉反馈，防止页面看起来像卡死，且使用特定占位符以便后续安全剥离
+                    setRealtimeTurn({ id: Date.now(), streaming: '🎙️ ...', original: '' });
                   }
 
-                  // 捕捉 Whisper 底层转写，它比大模型的文本流输出更加准确且不易幻觉
                   if (msg.type === "conversation.item.input_audio_transcription.completed") {
                     setRealtimeTurn(prev => prev ? { ...prev, original: msg.transcript } : prev);
                   }
 
-                  // 流式动画打字效果
                   if (msg.type === "response.text.delta") {
-                    setRealtimeTurn(prev => prev ? { ...prev, streaming: prev.streaming + msg.delta } : prev);
+                    setRealtimeTurn(prev => {
+                      if (!prev) return prev;
+                      // 动态擦除占位符，拼接真实的文字流
+                      let currentText = prev.streaming === '🎙️ ...' ? '' : prev.streaming;
+                      return { ...prev, streaming: currentText + msg.delta };
+                    });
                   }
 
-                  // 断句完成
                   if (msg.type === "response.done") {
                     setRealtimeTurn(prev => {
                       if (prev) {
-                        const finalText = (prev.original && prev.original.trim()) ? prev.original.trim() : (prev.streaming ? prev.streaming.trim() : '');
+                        // 【关键修复4】：提交前剥离占位符，绝不把它丢给翻译引擎，解决“Extracting... Okay”的报错
+                        let streamText = prev.streaming === '🎙️ ...' ? '' : prev.streaming;
+                        const finalText = (prev.original && prev.original.trim()) ? prev.original.trim() : streamText.trim();
                         
-                        // 末端过滤常见的静音幻觉文本，不让它上屏
                         const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe|ご視聴|視聴ありがとう/i.test(finalText);
                         
                         if (finalText && !isHallucination) {
@@ -347,7 +346,8 @@
                 if (rtcUrl.endsWith('/v1')) rtcUrl = rtcUrl.replace('/v1', '/v1/realtime');
                 else if (!rtcUrl.endsWith('/realtime')) rtcUrl += '/realtime';
                 
-                const sdpResponse = await fetch(`${rtcUrl}?model=gpt-4o-realtime-preview`, {
+                // 【关键保护】：明确指向具有 WebRTC 稳定支持的模型快照版本
+                const sdpResponse = await fetch(`${rtcUrl}?model=gpt-4o-realtime-preview-2024-12-17`, {
                   method: "POST",
                   body: offer.sdp,
                   headers: {
@@ -356,7 +356,6 @@
                   },
                 });
 
-                // 网络级或鉴权级报错抛出
                 if (!sdpResponse.ok) {
                   const errText = await sdpResponse.text();
                   throw new Error(`握手失败 (${sdpResponse.status}): ${errText}`);
@@ -794,11 +793,10 @@
                 )}
 
                 {/* [OpenAI 引擎] 流式文字展示 */}
-                {/* 【关键修复】：只有当真正识别到文字时，才渲染该区块，杜绝空白闪烁 */}
-                {realtimeTurn && config.engine === 'openai' && realtimeTurn.streaming && (
+                {realtimeTurn && config.engine === 'openai' && (
                   <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto transition-all" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
                     <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
-                      {realtimeTurn.streaming}
+                      {realtimeTurn.streaming || (realtimeTurn.id && '🎙️ ...')}
                     </div>
                   </div>
                 )}
