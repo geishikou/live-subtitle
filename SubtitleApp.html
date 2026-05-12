@@ -52,8 +52,8 @@
         
         language: 'zh-CN',
         gasUrl: '',
-        pauseDuration: 500, // 断句等待时间，500ms非常迅速
-        vadThreshold: 0.2,  // 核心！恢复 0.2，大幅提升小声音的识别灵敏度
+        pauseDuration: 800, // 宽容度调高到 800ms，照顾“边想边说”的习惯
+        vadThreshold: 0.2,  
         
         trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
         trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -124,14 +124,22 @@
       };
 
       const scrollRef = useRef(null);
-      const stateRef = useRef({ isListening, ...config });
+      const stateRef = useRef({ 
+        isListening, 
+        lastContext: "", // 新增：记忆上一句话的上下文
+        ...config 
+      });
 
       useEffect(() => {
-        stateRef.current = { isListening, ...config };
+        stateRef.current = { 
+          isListening, 
+          lastContext: stateRef.current.lastContext, // 保持记忆
+          ...config 
+        };
       }, [isListening, config]);
 
-      // --- 并发翻译 API 调用 ---
-      const fetchTranslation = async (text, targetLang) => {
+      // --- 并发翻译 API 调用 (带上下文记忆版本) ---
+      const fetchTranslation = async (text, targetLang, contextMemory = "") => {
         const state = stateRef.current;
         if (state.engine === 'openai') {
           if (!state.openaiKey) return "[请配置Key]";
@@ -139,6 +147,12 @@
             let baseUrl = state.openaiUrl.trim().replace(/\/$/, '');
             if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', ''); 
             
+            // 组装智能 Prompt，如果存在上一句话的记忆，就让模型结合语境翻译，避免因物理断句导致的语义断层
+            let systemContent = `You are a professional subtitle translator. Translate the user's speech to ${targetLang}. Output ONLY the translation. No quotes, no explanations.`;
+            if (contextMemory) {
+               systemContent += `\nHere is the previous context to help you translate more accurately: "${contextMemory}"`;
+            }
+
             const res = await fetch(`${baseUrl}/chat/completions`, {
               method: 'POST',
               headers: {
@@ -148,7 +162,7 @@
               body: JSON.stringify({
                 model: 'gpt-4o-mini',
                 messages: [
-                  { role: 'system', content: `You are a professional subtitle translator. Translate the user's speech to ${targetLang}. Output ONLY the translation.` },
+                  { role: 'system', content: systemContent },
                   { role: 'user', content: text }
                 ],
                 temperature: 0.1 
@@ -189,8 +203,14 @@
         ]);
         setCurrentTranscript('');
 
-        const t1Promise = stateRef.current.trans1Enabled ? fetchTranslation(trimmedText, stateRef.current.trans1Lang) : Promise.resolve('');
-        const t2Promise = stateRef.current.trans2Enabled ? fetchTranslation(trimmedText, stateRef.current.trans2Lang) : Promise.resolve('');
+        // 提取当前记忆用于这次翻译
+        const memoryToUse = stateRef.current.lastContext;
+
+        const t1Promise = stateRef.current.trans1Enabled ? fetchTranslation(trimmedText, stateRef.current.trans1Lang, memoryToUse) : Promise.resolve('');
+        const t2Promise = stateRef.current.trans2Enabled ? fetchTranslation(trimmedText, stateRef.current.trans2Lang, memoryToUse) : Promise.resolve('');
+
+        // 更新记忆库：把当前这句话存进去，供下一句话作参考
+        stateRef.current.lastContext = trimmedText;
 
         const [res1, res2] = await Promise.all([t1Promise, t2Promise]);
         setHistory((prev) => prev.map(item => item.id === itemId ? { ...item, t1: res1, t2: res2 } : item));
@@ -205,6 +225,8 @@
         let isActive = true; 
 
         if (isListening) {
+          // 清空上一次对话的记忆
+          stateRef.current.lastContext = "";
           
           // ----------------------------------------------------
           // 引擎 1：浏览器原生 (大道至简，纯净调用，绝对零干预)
@@ -247,7 +269,7 @@
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI WebRTC Realtime (纯转写脱敏版，彻底解决吃字BUG)
+          // 引擎 2：OpenAI WebRTC Realtime (纯转写脱敏版)
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -258,7 +280,6 @@
 
             const initRealtimeWebRTC = async () => {
               try {
-                // 开启硬件增益和降噪，像原生引擎一样保证小声音的清晰抓取
                 localStream = await navigator.mediaDevices.getUserMedia({ 
                   audio: {
                     echoCancellation: true,
@@ -289,42 +310,41 @@
                   }
                   
                   if (msg.type === "session.created") {
+                    let langTarget = "its original language";
+                    if (stateRef.current.language === 'zh-CN') langTarget = "Simplified Chinese (简体中文)";
+                    if (stateRef.current.language === 'zh-TW') langTarget = "Traditional Chinese (繁體中文)";
+
+                    const instructions = `You are a pure speech-to-text transcriber. Output EXACTLY what the user says in ${langTarget}. NEVER act as an assistant, NEVER answer questions, NEVER converse. If the audio is silence or noise, output NOTHING.`;
+
                     dataChannel.send(JSON.stringify({
                       type: "session.update",
                       session: {
                         input_audio_transcription: { model: "whisper-1" },
                         turn_detection: { 
                           type: "server_vad",
-                          threshold: stateRef.current.vadThreshold || 0.2, // 确保极高灵敏度，捕捉气声
+                          threshold: stateRef.current.vadThreshold || 0.2, 
                           prefix_padding_ms: 300,
-                          silence_duration_ms: stateRef.current.pauseDuration || 500,
-                          create_response: false // 【终极杀招】：完全禁止模型生成“回复”！只让它当纯转写器！彻底消除吃字冲突和延迟！
+                          silence_duration_ms: stateRef.current.pauseDuration || 800,
+                          create_response: false 
                         } 
                       }
                     }));
                   }
 
                   if (msg.type === "input_audio_buffer.speech_started") {
-                    // 当人声响起，立刻给出一个安全的占位符，绝不干扰上一回合
                     setRealtimeTurn({ id: Date.now(), streaming: '🎙️ ...' });
                   }
 
-                  // 【核心改动】：不要等什么大模型回复完成（response.done），只要底层 Whisper 转写一结束，立刻获取并上屏！
                   if (msg.type === "conversation.item.input_audio_transcription.completed") {
                     const transcriptText = msg.transcript ? msg.transcript.trim() : '';
-                    
-                    // 防幻觉盾牌
                     const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe|ご視聴|視聴ありがとう/i.test(transcriptText);
                     
                     if (transcriptText && !isHallucination) {
-                      commitText(transcriptText); // 把抓到的纯正原文直接推给并发翻译引擎
+                      commitText(transcriptText); 
                     }
-                    
-                    // 无论成功与否，清空状态，准备迎接随时到来的下一句话，再也不会卡死了！
                     setRealtimeTurn(null);
                   }
 
-                  // 静音或杂音过高导致转写失败时，也安全重置状态
                   if (msg.type === "conversation.item.input_audio_transcription.failed") {
                     setRealtimeTurn(null);
                   }
@@ -379,6 +399,7 @@
         if (!isListening) {
           setCurrentTranscript('');
           setRealtimeTurn(null);
+          stateRef.current.lastContext = ""; // 重置记忆
         }
       };
 
@@ -590,7 +611,7 @@
                             onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
                             className="w-full accent-blue-500" 
                           />
-                          <p className="text-[10px] text-gray-500 leading-tight">决定出字并送去翻译的实时速度。越小越快，建议：500ms</p>
+                          <p className="text-[10px] text-gray-500 leading-tight">决定出字并送去翻译的实时速度。如果您习惯“边想边说”，请调大至800ms以上保护完整句意。</p>
                         </div>
 
                         <div className="space-y-1.5 pt-2 border-t border-gray-200">
@@ -814,7 +835,7 @@
                 {realtimeTurn && config.engine === 'openai' && (
                   <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto transition-all" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
                     <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
-                      {realtimeTurn.streaming}
+                      {realtimeTurn.streaming || (realtimeTurn.id && '🎙️ ...')}
                     </div>
                   </div>
                 )}
