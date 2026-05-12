@@ -308,7 +308,8 @@
                   }
 
                   if (msg.type === "input_audio_buffer.speech_started") {
-                    setRealtimeTurn({ id: Date.now(), streaming: '🎙️ 正在提取...', original: '' });
+                    // 【关键修复】：彻底移除生硬的占位符提示，让流式文字从完全空白开始自然显现
+                    setRealtimeTurn({ id: Date.now(), streaming: '', original: '' });
                   }
 
                   // 捕捉 Whisper 底层转写，它比大模型的文本流输出更加准确且不易幻觉
@@ -793,7 +794,8 @@
                 )}
 
                 {/* [OpenAI 引擎] 流式文字展示 */}
-                {realtimeTurn && config.engine === 'openai' && (
+                {/* 【关键修复】：只有当真正识别到文字时，才渲染该区块，杜绝空白闪烁 */}
+                {realtimeTurn && config.engine === 'openai' && realtimeTurn.streaming && (
                   <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto transition-all" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
                     <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
                       {realtimeTurn.streaming}
