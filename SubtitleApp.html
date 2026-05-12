@@ -53,7 +53,7 @@
         
         language: 'zh-CN',
         gasUrl: '',
-        pauseDuration: 800, // VAD 切片阈值，对于录音方案非常重要
+        pauseDuration: 800, // VAD 切片阈值
         
         trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
         trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -140,7 +140,7 @@
           if (!state.openaiKey) return "[请配置 OpenAI Key]";
           try {
             let baseUrl = state.openaiUrl.trim().replace(/\/$/, '');
-            if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', ''); // 剔除可能写错的 realtime 路径
+            if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', ''); 
             
             const res = await fetch(`${baseUrl}/chat/completions`, {
               method: 'POST',
@@ -154,7 +154,7 @@
                   { role: 'system', content: `You are a professional subtitle translator. Translate the following text to ${targetLang}. Output ONLY the translated text. Do not add quotes, explanations, or converse with the user.` },
                   { role: 'user', content: text }
                 ],
-                temperature: 0.1 // 极低的温度，确保严谨翻译
+                temperature: 0.1 
               })
             });
             const data = await res.json();
@@ -203,6 +203,7 @@
       // --- 引擎初始化 ---
       useEffect(() => {
         let nativeRecognition = null;
+        let isActive = true; // 新增：生命周期安全锁，防止切换引擎后旧进程仍发请求
         
         // OpenAI 音频切片引擎变量
         let localStream = null;
@@ -212,6 +213,7 @@
         let silenceTimerRefOpenAI = null;
         let chunks = [];
         let isSpeaking = false;
+        let hasValidAudio = false; // 核心！用于判断这段录音是不是纯白噪音
 
         if (isListening) {
           
@@ -229,6 +231,7 @@
             nativeRecognition.lang = config.language;
 
             nativeRecognition.onresult = (event) => {
+              if (!isActive) return;
               let currentInterim = '';
               let currentFinals = '';
               for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -240,18 +243,19 @@
               setCurrentTranscript(currentInterim);
             };
 
-            nativeRecognition.onerror = (e) => { if (e.error === 'not-allowed') setIsListening(false); };
+            nativeRecognition.onerror = (e) => { 
+              if (e.error === 'not-allowed') setIsListening(false); 
+            };
             nativeRecognition.onend = () => {
-              if (stateRef.current.isListening && stateRef.current.engine === 'native') {
-                setTimeout(() => { try { nativeRecognition.start(); } catch (e) {} }, 100);
+              if (isActive && stateRef.current.isListening && stateRef.current.engine === 'native') {
+                setTimeout(() => { try { if (isActive) nativeRecognition.start(); } catch (e) {} }, 100);
               }
             };
             try { nativeRecognition.start(); } catch (e) {}
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI 官方稳定 Audio API (高精度 VAD 切片 + Whisper 转写)
-          // 加入防静音幻觉过滤机制
+          // 引擎 2：OpenAI 高精度 VAD 切片 + Whisper 转写
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -263,6 +267,11 @@
             const initOpenAIAudio = async () => {
               try {
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                if (!isActive) {
+                  localStream.getTracks().forEach(t => t.stop());
+                  return;
+                }
+                
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const analyser = audioCtx.createAnalyser();
                 const source = audioCtx.createMediaStreamSource(localStream);
@@ -272,7 +281,7 @@
 
                 let mimeType = 'audio/webm';
                 if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mimeType)) {
-                  mimeType = 'audio/mp4'; // 兼容 Safari
+                  mimeType = 'audio/mp4'; 
                 }
 
                 mediaRecorder = new MediaRecorder(localStream, { mimeType });
@@ -282,38 +291,47 @@
                 };
 
                 mediaRecorder.onstop = () => {
+                  if (!isActive) return; // 生命周期死亡，立即中断
+                  
                   const audioBlob = new Blob(chunks, { type: mimeType });
                   chunks = [];
 
-                  // 录制文件必须大于一定体积才处理，避免处理无用静音切片
-                  if (audioBlob.size > 1000) {
+                  // 终极杀招：不仅看文件大小，更关键是看 hasValidAudio！
+                  // 如果刚才这段录音压根没有突破人声分贝阈值，说明纯属静音幻觉源头，直接无情抛弃，绝不上传请求！
+                  if (hasValidAudio && audioBlob.size > 1000) {
                      processAudioSegment(audioBlob);
                   } else {
                      setRealtimeTurn(null);
                   }
+                  
+                  hasValidAudio = false; // 抛弃或上传后，重置人声标记
 
-                  // 只要仍在监听状态，瞬间重启录音，准备录制下一句
-                  if (stateRef.current.isListening && stateRef.current.engine === 'openai') {
+                  // 只要仍在监听且没换引擎，重启录音
+                  if (isActive && stateRef.current.isListening && stateRef.current.engine === 'openai') {
                      try { mediaRecorder.start(); } catch(e) {}
                   }
                 };
 
-                // 处理音频块发送给 Whisper /v1/audio/transcriptions
+                // 处理音频块发送给 Whisper
                 const processAudioSegment = async (blob) => {
+                  if (!isActive) return;
                   const formData = new FormData();
                   formData.append('file', blob, 'audio' + (mimeType.includes('mp4') ? '.mp4' : '.webm'));
                   formData.append('model', 'whisper-1');
                   
-                  // 第一重保险：强行指定 temperature 降低模型脑补和幻觉的发散性
+                  // 强制降温，扼杀幻觉创造力
                   formData.append('temperature', '0'); 
                   
-                  // 第二重保险：根据用户选择的简/繁体动态生成 Prompt，强制 Whisper 统一输出格式，同时压制静音幻觉
-                  let whisperPrompt = '这是一段清晰的语音，请准确转写。如果遇到静音、底噪或无意义声音请保持空白，绝对不要输出“谢谢观看”、“请订阅”、“字幕由Amara.org社区提供”、“明镜与点点”等无关字幕。';
-                  
+                  // 针对性 Prompt 诱导与压制
+                  let whisperPrompt = '这是一段清晰的语音，请准确转写。如果遇到静音、底噪或无意义声音请保持空白，绝对不要输出任何感谢观看、订阅、字幕来源等无关的幻觉文本。';
                   if (stateRef.current.language === 'zh-CN') {
-                    whisperPrompt = '这是一段简体中文语音，请务必严格使用简体中文（Simplified Chinese）进行转写输出。如果遇到静音、底噪或无意义声音请保持空白，绝对不要输出“谢谢观看”、“请订阅”、“字幕由Amara.org社区提供”、“明镜与点点”等无关字幕。';
+                    whisperPrompt = '这是一段简体中文语音，请务必严格使用简体中文（Simplified Chinese）进行转写输出。遇到静音或底噪请留空，严禁输出“谢谢观看”、“请订阅”、“Amara”等幻觉文字。';
                   } else if (stateRef.current.language === 'zh-TW') {
-                    whisperPrompt = '這是一段繁體中文語音，請務必嚴格使用繁體中文（Traditional Chinese）進行轉寫輸出。如果遇到靜音、底噪或無意義聲音請保持空白，絕對不要輸出“謝謝觀看”、“請訂閱”、“字幕由Amara.org社區提供”、“明鏡與點點”等無關字幕。';
+                    whisperPrompt = '這是一段繁體中文語音，請務必嚴格使用繁體中文（Traditional Chinese）進行轉寫輸出。遇到靜音或底噪請留空，嚴禁輸出“謝謝觀看”、“請訂閱”、“Amara”等幻覺文字。';
+                  } else if (stateRef.current.language === 'ja-JP') {
+                    whisperPrompt = 'これは日本語の音声です。正確に書き起こしてください。無音やノイズの場合は空白のままにし、「ご視聴ありがとうございました」「チャンネル登録」などの幻覚テキストは絶対に出力しないでください。';
+                  } else if (stateRef.current.language === 'en-US') {
+                    whisperPrompt = 'This is an English audio. Transcribe it accurately. If it is silence or noise, leave it blank. NEVER output hallucination texts like "Thanks for watching", "Subscribe", or "Amara.org".';
                   }
                   
                   formData.append('prompt', whisperPrompt);
@@ -332,44 +350,51 @@
                       body: formData
                     });
                     
+                    if (!isActive) return;
+
                     const data = await res.json();
                     
                     if (res.ok && data.text) {
                       let transcribedText = data.text.trim();
                       
-                      // 第三重致命保险：前端硬过滤！一旦检测到经典的静音幻觉文本，直接静默抛弃
-                      const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe/i.test(transcribedText);
+                      // 终极拦截黑名单：将各国常见幻觉死词一网打尽
+                      const isHallucination = /谢谢观看|謝謝觀看|请订阅|請訂閱|字幕由|Amara|不吝点赞|不吝點贊|明镜与点点|明鏡與點點|Thanks for watching|Subscribe|ご視聴|視聴ありがとう|ありがとうございました|Thank you|視聴いただき|MBC|KBS|SBS|YTN|YouTube/i.test(transcribedText) || transcribedText.length < 2;
                       
                       if (transcribedText && !isHallucination) {
                         setRealtimeTurn(null);
                         commitText(transcribedText);
                       } else {
-                        // 命中幻觉或空字符串，默默扔掉，不在界面显示
+                        // 命中幻觉或空字符串，默默扔掉
                         setRealtimeTurn(null);
                       }
                     } else {
                       setRealtimeTurn(null);
                     }
                   } catch (e) {
+                    if (!isActive) return;
                     console.error("OpenAI Audio API Error:", e);
                     setRealtimeTurn({ id: Date.now(), streaming: '❌ 识别失败，请检查网络或 Key' });
-                    setTimeout(() => { if (stateRef.current.isListening) setRealtimeTurn(null); }, 2000);
+                    setTimeout(() => { if (isActive && stateRef.current.isListening) setRealtimeTurn(null); }, 2000);
                   }
                 };
 
                 mediaRecorder.start();
 
-                // 核心 VAD (静音检测) 逻辑：通过判断音量大小进行切分
+                // 核心 VAD 算法 (改进为峰值判定)
                 const checkAudio = () => {
-                  if (!stateRef.current.isListening || stateRef.current.engine !== 'openai') return;
+                  if (!isActive || !stateRef.current.isListening || stateRef.current.engine !== 'openai') return;
                   
                   analyser.getByteFrequencyData(dataArray);
-                  let sum = 0;
-                  for(let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-                  let avg = sum / dataArray.length;
+                  
+                  // 不用平均值，改用峰值判定（寻找音量最大振幅），能更精准地区分持续的闷底噪和突然的人声
+                  let maxVol = 0;
+                  for(let i = 0; i < dataArray.length; i++) {
+                    if(dataArray[i] > maxVol) maxVol = dataArray[i];
+                  }
 
-                  // 阈值 8 是经过调优的人声触发线
-                  if (avg > 8) { 
+                  // 阈值 25 判定是否有人声。如果 maxVol > 25，说明确实捕捉到了较大声音
+                  if (maxVol > 25) { 
+                    hasValidAudio = true; // 【最核心防幻觉标记】：确认麦克风刚才真的进人声了！
                     if (!isSpeaking) {
                       isSpeaking = true;
                       setRealtimeTurn({ id: Date.now(), streaming: '🎙️ 正在录音提取...' });
@@ -378,11 +403,11 @@
                   } else {
                     if (isSpeaking) {
                       isSpeaking = false;
-                      // 语音结束后等待用户设定的停顿时间（默认 800ms），然后切断音频包上传
                       silenceTimerRefOpenAI = setTimeout(() => {
-                        if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        if (isActive && mediaRecorder && mediaRecorder.state === 'recording') {
                           setRealtimeTurn({ id: Date.now(), streaming: '⏳ Whisper云端分析与并发翻译中...' });
-                          mediaRecorder.stop(); // stop 会触发上面的 onstop 逻辑进行上传
+                          // 这句话彻底断了，准备上传
+                          mediaRecorder.stop(); 
                         }
                       }, stateRef.current.pauseDuration || 800);
                     }
@@ -393,6 +418,7 @@
                 checkAudio();
 
               } catch (err) {
+                if (!isActive) return;
                 console.error("Audio init error:", err);
                 alert("无法访问麦克风或初始化音频失败，请检查浏览器权限！");
                 setIsListening(false);
@@ -403,9 +429,15 @@
           }
         }
 
+        // 清理函数（彻底断根，绝不留后台幽灵进程）
         return () => {
+          isActive = false;
+          
           if (nativeRecognition) nativeRecognition.stop();
-          if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+          if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.onstop = null; // 取消回调绑定，防止停止时又发最后一次请求
+            mediaRecorder.stop();
+          }
           if (checkAudioId) cancelAnimationFrame(checkAudioId);
           if (silenceTimerRefOpenAI) clearTimeout(silenceTimerRefOpenAI);
           if (audioCtx && audioCtx.state !== 'closed') audioCtx.close();
