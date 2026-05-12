@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>实时滚动字幕与翻译 (原生+OpenAI双引擎极简版)</title>
+  <title>实时滚动字幕与翻译 (稳定切片版)</title>
   
   <!-- 引入 React 和 ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   
-  <!-- 引入 Babel 编译器用于在浏览器中运行 JSX -->
+  <!-- 引入 Babel 编译器 -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
   <!-- 引入 Tailwind CSS -->
@@ -28,7 +28,6 @@
   </style>
 </head>
 <body>
-  <!-- 根容器：添加加载中动画，防止 Babel 编译期间白屏恐慌 -->
   <div id="root">
     <div style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:#666; background-color:#f3f4f6;">
       <div style="text-align:center;">
@@ -54,7 +53,7 @@
         
         language: 'zh-CN',
         gasUrl: '',
-        pauseDuration: 800, 
+        pauseDuration: 800, // VAD 切片阈值，对于录音方案非常重要
         
         trans1Enabled: false, trans1Lang: 'en', trans1Color: '#FFFF00', trans1Size: 36,
         trans2Enabled: false, trans2Lang: 'ja', trans2Color: '#00FFFF', trans2Size: 36,
@@ -71,13 +70,11 @@
       const [history, setHistory] = useState([]); // { id, original, t1, t2 }
       const [currentTranscript, setCurrentTranscript] = useState('');
       
-      // 用于 OpenAI Realtime 的流式状态
-      const [realtimeTurn, setRealtimeTurn] = useState(null); // { id, streaming, original }
+      // 用于 OpenAI VAD 录音时的界面提示
+      const [realtimeTurn, setRealtimeTurn] = useState(null); // { id, streaming }
 
-      // 统一 UI 显示状态（true 为展开控制，false 为纯净模式）
       const [showUI, setShowUI] = useState(true);
 
-      // --- 统一配置管理 ---
       const [config, setConfig] = useState(() => {
         try {
           const saved = localStorage.getItem('subtitleConfig');
@@ -96,7 +93,6 @@
         setConfig(prev => ({ ...prev, [key]: value }));
       };
 
-      // --- 导入与导出配置 ---
       const handleExport = () => {
         try {
           const jsonString = JSON.stringify(config, null, 2);
@@ -130,7 +126,6 @@
         event.target.value = '';
       };
 
-      // --- Refs ---
       const scrollRef = useRef(null);
       const stateRef = useRef({ isListening, ...config });
 
@@ -138,16 +133,14 @@
         stateRef.current = { isListening, ...config };
       }, [isListening, config]);
 
-      // --- 翻译 API 调用 (兼容双引擎：GAS 或 OpenAI REST API) ---
+      // --- 核心动作：翻译 (兼容双引擎) ---
       const fetchTranslation = async (text, targetLang) => {
         const state = stateRef.current;
-        
-        // 如果启用了 OpenAI 引擎，则调用并发的 REST API 进行高质量整句翻译
         if (state.engine === 'openai') {
           if (!state.openaiKey) return "[请配置 OpenAI Key]";
           try {
             let baseUrl = state.openaiUrl.trim().replace(/\/$/, '');
-            if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', '');
+            if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', ''); // 剔除可能写错的 realtime 路径
             
             const res = await fetch(`${baseUrl}/chat/completions`, {
               method: 'POST',
@@ -156,11 +149,12 @@
                 'Authorization': `Bearer ${state.openaiKey}`
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini', // 翻译使用超低延迟且极便宜的 4o-mini
+                model: 'gpt-4o-mini',
                 messages: [
-                  { role: 'system', content: `You are a real-time subtitle translator. Translate the given text to ${targetLang}. Output ONLY the translation without any quotes or explanations.` },
+                  { role: 'system', content: `You are a professional subtitle translator. Translate the following text to ${targetLang}. Output ONLY the translated text. Do not add quotes, explanations, or converse with the user.` },
                   { role: 'user', content: text }
-                ]
+                ],
+                temperature: 0.1 // 极低的温度，确保严谨翻译
               })
             });
             const data = await res.json();
@@ -170,7 +164,6 @@
             return "[OpenAI 翻译错误]";
           }
         } 
-        // 原生模式则默认使用免费的 GAS 接口
         else {
           const url = state.gasUrl.trim();
           if (!url) return "[请配置GAS接口]";
@@ -199,7 +192,7 @@
         ]);
         setCurrentTranscript('');
 
-        // 并发触发两个翻译请求，实现同时双语输出，互不阻塞
+        // 并发翻译
         const t1Promise = stateRef.current.trans1Enabled ? fetchTranslation(trimmedText, stateRef.current.trans1Lang) : Promise.resolve('');
         const t2Promise = stateRef.current.trans2Enabled ? fetchTranslation(trimmedText, stateRef.current.trans2Lang) : Promise.resolve('');
 
@@ -207,17 +200,21 @@
         setHistory((prev) => prev.map(item => item.id === itemId ? { ...item, t1: res1, t2: res2 } : item));
       };
 
-      // --- 引擎初始化 (原生与 OpenAI 双引擎) ---
+      // --- 引擎初始化 ---
       useEffect(() => {
         let nativeRecognition = null;
-        let peerConnection = null;
-        let dataChannel = null;
+        
+        // OpenAI 音频切片引擎变量
         let localStream = null;
+        let audioCtx = null;
+        let mediaRecorder = null;
+        let checkAudioId = null;
+        let silenceTimerRefOpenAI = null;
+        let chunks = [];
+        let isSpeaking = false;
 
         if (isListening) {
-          // ----------------------------------------------------
-          // 引擎 1：浏览器原生识别 (完全无人工断句干预)
-          // ----------------------------------------------------
+          
           if (config.engine === 'native') {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
@@ -249,12 +246,12 @@
                 setTimeout(() => { try { nativeRecognition.start(); } catch (e) {} }, 100);
               }
             };
-
             try { nativeRecognition.start(); } catch (e) {}
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI WebRTC Realtime (严格隔离对话版)
+          // 引擎 2：OpenAI 官方稳定 Audio API (高精度 VAD 切片 + Whisper 转写)
+          // 绝对不会像大语言模型一样自作主张跟你对话
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -263,113 +260,138 @@
               return;
             }
 
-            const initRealtimeWebRTC = async () => {
+            const initOpenAIAudio = async () => {
               try {
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                peerConnection = new RTCPeerConnection();
-                peerConnection.addTrack(localStream.getTracks()[0]);
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = audioCtx.createAnalyser();
+                const source = audioCtx.createMediaStreamSource(localStream);
+                source.connect(analyser);
+                analyser.fftSize = 512;
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                dataChannel = peerConnection.createDataChannel("oai-events");
+                let mimeType = 'audio/webm';
+                if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mimeType)) {
+                  mimeType = 'audio/mp4'; // 兼容 Safari
+                }
 
-                dataChannel.addEventListener("message", (e) => {
-                  const msg = JSON.parse(e.data);
+                mediaRecorder = new MediaRecorder(localStream, { mimeType });
+
+                mediaRecorder.ondataavailable = (e) => {
+                  if (e.data.size > 0) chunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                  const audioBlob = new Blob(chunks, { type: mimeType });
+                  chunks = [];
+
+                  // 如果录制的音频块有足够的数据(滤除极短杂音)，发给 OpenAI Whisper
+                  if (audioBlob.size > 1000) {
+                     processAudioSegment(audioBlob);
+                  } else {
+                     setRealtimeTurn(null);
+                  }
+
+                  // 只要仍在监听状态，瞬间重启录音，准备录制下一句
+                  if (stateRef.current.isListening && stateRef.current.engine === 'openai') {
+                     try { mediaRecorder.start(); } catch(e) {}
+                  }
+                };
+
+                // 处理音频块发送给 Whisper /v1/audio/transcriptions
+                const processAudioSegment = async (blob) => {
+                  const formData = new FormData();
+                  // 根据 MIME 类型指定扩展名，确保 API 解析正确
+                  formData.append('file', blob, 'audio' + (mimeType.includes('mp4') ? '.mp4' : '.webm'));
+                  formData.append('model', 'whisper-1');
                   
-                  if (msg.type === "session.created") {
-                    // 核心保险 1：用极为苛刻的 Prompt 要求它当复读机，禁止对话
-                    const instructions = `You are a pure speech-to-text transcriber. 
-                    Rule 1: EXACTLY REPEAT the user's speech word-for-word in the original language.
-                    Rule 2: NEVER act as an assistant. NEVER answer questions. NEVER converse.
-                    Rule 3: DO NOT translate.
-                    Your only output should be the exact transcribed text of the input audio.`;
+                  // 映射标准的 ISO 语言代码供 Whisper 使用以提升准确度
+                  const langMap = { 'zh-CN': 'zh', 'zh-TW': 'zh', 'en-US': 'en', 'ja-JP': 'ja', 'ko-KR': 'ko' };
+                  const isoLang = langMap[stateRef.current.language] || 'zh';
+                  formData.append('language', isoLang);
 
-                    dataChannel.send(JSON.stringify({
-                      type: "session.update",
-                      session: {
-                        modalities: ["text"],
-                        instructions: instructions,
-                        temperature: 0.0, // 强制降温到0，彻底封锁自我发挥和幻觉
-                        input_audio_transcription: { model: "whisper-1" }, // 要求后台同步进行纯语音到文本解析
-                        turn_detection: {
-                          type: "server_vad",
-                          threshold: 0.5,
-                          prefix_padding_ms: 300,
-                          silence_duration_ms: stateRef.current.pauseDuration || 800
-                        }
-                      }
-                    }));
-                  }
+                  try {
+                    let baseUrl = stateRef.current.openaiUrl.trim().replace(/\/$/, '');
+                    if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', '');
 
-                  if (msg.type === "input_audio_buffer.speech_started") {
-                    setRealtimeTurn({ id: Date.now(), streaming: '', original: '' });
-                  }
-
-                  // 核心保险 2：静默接收底层真实的 Whisper 转写结果，不会有任何大语言模型加工
-                  if (msg.type === "conversation.item.input_audio_transcription.completed") {
-                    setRealtimeTurn(prev => prev ? { ...prev, original: msg.transcript } : { id: Date.now(), streaming: '', original: msg.transcript });
-                  }
-
-                  if (msg.type === "response.text.delta") {
-                    // 屏幕动画：流式展示大模型推测的文本
-                    setRealtimeTurn(prev => prev ? { ...prev, streaming: prev.streaming + msg.delta } : prev);
-                  }
-
-                  if (msg.type === "response.done") {
-                    // 核心保险 3：完全剥离 Side Effect 冲突（解决白屏崩溃Bug）。使用 setTimeout 推迟执行，保护 React 渲染队列
-                    setRealtimeTurn(prev => {
-                      if (prev) {
-                        const finalText = (prev.original && prev.original.trim()) 
-                          ? prev.original.trim() 
-                          : (prev.streaming ? prev.streaming.trim() : '');
-                          
-                        if (finalText) {
-                          setTimeout(() => commitText(finalText), 0);
-                        }
-                      }
-                      return null;
+                    const res = await fetch(`${baseUrl}/audio/transcriptions`, {
+                      method: 'POST',
+                      headers: { 'Authorization': `Bearer ${stateRef.current.openaiKey}` },
+                      body: formData
                     });
+                    
+                    const data = await res.json();
+                    
+                    if (res.ok && data.text && data.text.trim()) {
+                      setRealtimeTurn(null);
+                      // 这里拿到的 100% 绝对是您的原话转写，直接丢去并发翻译
+                      commitText(data.text.trim());
+                    } else {
+                      setRealtimeTurn(null);
+                    }
+                  } catch (e) {
+                    console.error("OpenAI Audio API Error:", e);
+                    setRealtimeTurn({ id: Date.now(), streaming: '❌ 识别失败，请检查网络或 Key' });
+                    setTimeout(() => { if (stateRef.current.isListening) setRealtimeTurn(null); }, 2000);
                   }
-                });
+                };
 
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
+                mediaRecorder.start();
 
-                let rtcUrl = stateRef.current.openaiUrl.trim();
-                if (rtcUrl.endsWith('/v1')) rtcUrl = rtcUrl.replace('/v1', '/v1/realtime');
-                else if (!rtcUrl.endsWith('/realtime')) rtcUrl += '/realtime';
+                // 核心 VAD (静音检测) 逻辑：通过判断音量大小进行切分
+                const checkAudio = () => {
+                  if (!stateRef.current.isListening || stateRef.current.engine !== 'openai') return;
+                  
+                  analyser.getByteFrequencyData(dataArray);
+                  let sum = 0;
+                  for(let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                  let avg = sum / dataArray.length;
+
+                  // 阈值 8 是经过调优的人声触发线
+                  if (avg > 8) { 
+                    if (!isSpeaking) {
+                      isSpeaking = true;
+                      setRealtimeTurn({ id: Date.now(), streaming: '🎙️ 正在录音提取...' });
+                    }
+                    if (silenceTimerRefOpenAI) clearTimeout(silenceTimerRefOpenAI);
+                  } else {
+                    if (isSpeaking) {
+                      isSpeaking = false;
+                      // 语音结束后等待用户设定的停顿时间（默认 800ms），然后切断音频包上传
+                      silenceTimerRefOpenAI = setTimeout(() => {
+                        if (mediaRecorder && mediaRecorder.state === 'recording') {
+                          setRealtimeTurn({ id: Date.now(), streaming: '⏳ Whisper云端分析与并发翻译中...' });
+                          mediaRecorder.stop(); // stop 会触发上面的 onstop 逻辑进行上传
+                        }
+                      }, stateRef.current.pauseDuration || 800);
+                    }
+                  }
+                  checkAudioId = requestAnimationFrame(checkAudio);
+                };
                 
-                const sdpResponse = await fetch(`${rtcUrl}?model=gpt-4o-realtime-preview`, {
-                  method: "POST",
-                  body: offer.sdp,
-                  headers: {
-                    Authorization: `Bearer ${stateRef.current.openaiKey}`,
-                    "Content-Type": "application/sdp"
-                  },
-                });
-
-                if (!sdpResponse.ok) throw new Error(`握手失败: ${sdpResponse.status}`);
-
-                const answerSdp = await sdpResponse.text();
-                await peerConnection.setRemoteDescription({ type: "answer", sdp: answerSdp });
+                checkAudio();
 
               } catch (err) {
-                console.error(err);
-                alert("OpenAI 连接失败，请检查网络和 Key: " + err.message);
+                console.error("Audio init error:", err);
+                alert("无法访问麦克风或初始化音频失败，请检查浏览器权限！");
                 setIsListening(false);
               }
             };
 
-            initRealtimeWebRTC();
+            initOpenAIAudio();
           }
         }
 
         return () => {
           if (nativeRecognition) nativeRecognition.stop();
-          if (peerConnection) peerConnection.close();
+          if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+          if (checkAudioId) cancelAnimationFrame(checkAudioId);
+          if (silenceTimerRefOpenAI) clearTimeout(silenceTimerRefOpenAI);
+          if (audioCtx && audioCtx.state !== 'closed') audioCtx.close();
           if (localStream) localStream.getTracks().forEach(t => t.stop());
         };
       }, [isListening, config.engine, config.language]);
 
-      // 控制开关
       const toggleListening = (e) => {
         e.stopPropagation();
         setIsListening(!isListening);
@@ -379,12 +401,10 @@
         }
       };
 
-      // 自动滚动
       useEffect(() => {
         if (scrollRef.current) scrollRef.current.scrollIntoView({ behavior: 'smooth' });
       }, [history, currentTranscript, realtimeTurn]);
 
-      // 防白屏：安全解析背景颜色
       const hexToRgba = (hex, alpha) => {
         if (!hex || typeof hex !== 'string') return `rgba(0, 255, 0, ${alpha / 100})`;
         let h = hex.replace('#', '');
@@ -396,7 +416,6 @@
         return `rgba(${r}, ${g}, ${b}, ${alpha / 100})`;
       };
 
-      // --- 样式定义 ---
       const baseTextStyle = {
         fontFamily: config.fontFamily,
         fontWeight: config.fontWeight,
@@ -416,7 +435,6 @@
       return (
         <div className="flex flex-col w-full h-[100dvh] overflow-hidden font-sans bg-gray-100">
           
-          {/* 隐形滚动条全局 CSS */}
           <style dangerouslySetInnerHTML={{__html: `
             .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
             .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -427,14 +445,9 @@
             .safe-pb { padding-bottom: max(48px, env(safe-area-inset-bottom)); }
           `}} />
 
-          {/* 上半部分：控制栏与设置面板 (紧凑纯净版) */}
           {showUI && (
             <div className="flex flex-col shrink-0 w-full z-40 bg-white shadow-md transition-all relative">
-              
-              {/* 控制工具栏 (纯图标版) */}
               <div className="flex flex-wrap items-center gap-2.5 px-4 py-2 safe-pt border-b border-gray-200">
-                
-                {/* 1. 开始/停止识别按钮 (纯图标+Tooltip) */}
                 <div className="relative group flex items-center">
                   <button
                     onClick={toggleListening}
@@ -449,13 +462,11 @@
                   </div>
                 </div>
 
-                {/* 原文语种切换 */}
                 <div className="relative flex items-center bg-gray-100 hover:bg-gray-200 rounded-full shadow-inner transition-colors border border-gray-200 h-10 w-[116px]">
                   <select 
                     value={config.language} 
                     onChange={(e) => updateConfig('language', e.target.value)}
                     className="w-full h-full bg-transparent text-sm font-bold text-gray-800 outline-none cursor-pointer appearance-none pl-4 pr-7 z-10 relative"
-                    title="快捷切换您的说话语言"
                   >
                     <option value="zh-CN">原文: 🇨🇳 中</option>
                     <option value="en-US">原文: 🇺🇸 英</option>
@@ -466,14 +477,12 @@
                   <i className="ph-bold ph-caret-down text-gray-400 absolute right-3 z-0 pointer-events-none text-xs"></i>
                 </div>
 
-                {/* 翻译 1 快捷切换 */}
                 {config.trans1Enabled && (
                   <div className="relative flex items-center bg-blue-50 hover:bg-blue-100 rounded-full shadow-inner transition-colors border border-blue-200 h-10 w-[126px]">
                     <select 
                       value={config.trans1Lang} 
                       onChange={(e) => updateConfig('trans1Lang', e.target.value)}
                       className="w-full h-full bg-transparent text-sm font-bold text-blue-800 outline-none cursor-pointer appearance-none pl-4 pr-7 z-10 relative"
-                      title="快捷切换翻译 1 的目标语言"
                     >
                       <option value="en">译文: 🇺🇸 Eng</option>
                       <option value="ja">译文: 🇯🇵 日</option>
@@ -485,14 +494,12 @@
                   </div>
                 )}
 
-                {/* 翻译 2 快捷切换 */}
                 {config.trans2Enabled && (
                   <div className="relative flex items-center bg-purple-50 hover:bg-purple-100 rounded-full shadow-inner transition-colors border border-purple-200 h-10 w-[126px]">
                     <select 
                       value={config.trans2Lang} 
                       onChange={(e) => updateConfig('trans2Lang', e.target.value)}
                       className="w-full h-full bg-transparent text-sm font-bold text-purple-800 outline-none cursor-pointer appearance-none pl-4 pr-7 z-10 relative"
-                      title="快捷切换翻译 2 的目标语言"
                     >
                       <option value="en">译文: 🇺🇸 Eng</option>
                       <option value="ja">译文: 🇯🇵 日</option>
@@ -506,7 +513,6 @@
 
                 <div className="flex-1"></div>
 
-                {/* 右侧：4个纯图标控制按钮合并组 */}
                 <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-200">
                   <div className="relative group flex items-center">
                     <label className="text-gray-600 hover:text-blue-600 p-2 hover:bg-blue-100 rounded-lg cursor-pointer transition-colors m-0">
@@ -541,18 +547,30 @@
                 </div>
               </div>
 
-              {/* 展开的 4 列网格设置面板 (极简结构) */}
               <div className="flex flex-col w-full max-h-[50vh] bg-gray-50 border-b border-gray-300">
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   
-                  {/* 列 1：引擎与API */}
                   <div className="space-y-3">
                     <div className="space-y-1.5 pt-1">
                       <label className="block text-xs font-bold text-gray-700">识别与翻译引擎</label>
                       <select value={config.engine} onChange={(e) => updateConfig('engine', e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-lg outline-none bg-blue-50 text-blue-800 font-bold shadow-sm">
                         <option value="native">🌐 浏览器原生 (免费·整句)</option>
-                        <option value="openai">🤖 OpenAI Realtime (极速流式)</option>
+                        <option value="openai">🤖 OpenAI Whisper (高精音频切片)</option>
                       </select>
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                      <label className="flex justify-between text-xs font-bold text-gray-700">
+                        <span>断句停顿检测 (VAD)</span>
+                        <span className="text-blue-600">{config.pauseDuration} ms</span>
+                      </label>
+                      <input 
+                        type="range" min="400" max="2500" step="100" 
+                        value={config.pauseDuration} 
+                        onChange={(e) => updateConfig('pauseDuration', Number(e.target.value))} 
+                        className="w-full accent-blue-500" 
+                      />
+                      <p className="text-[10px] text-gray-500 leading-tight">决定您停顿多久后触发一次云端翻译发送。调低响应更快，调高长句更准。建议 800ms。</p>
                     </div>
 
                     {config.engine === 'native' && (
@@ -594,7 +612,6 @@
                     )}
                   </div>
 
-                  {/* 列 2：语言设置 */}
                   <div className="space-y-3">
                     <div className="space-y-1.5 pt-1">
                       <label className="block text-xs font-bold text-gray-700">识别语言 (原文)</label>
@@ -640,7 +657,6 @@
                     </div>
                   </div>
 
-                  {/* 列 3：字体排版 */}
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1.5">
@@ -701,7 +717,6 @@
                     </div>
                   </div>
 
-                  {/* 列 4：颜色与背景 */}
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4 items-end">
                       <div className="space-y-1.5">
@@ -746,14 +761,13 @@
             </div>
           )}
 
-          {/* 下半部分：字幕主显示区域 (整个区域可点击切换模式) */}
+          {/* 下半部分：字幕主显示区域 */}
           <div 
             className="flex-1 relative flex flex-col w-full h-full overflow-hidden transition-all duration-300 shadow-inner cursor-pointer"
             style={{ backgroundColor: hexToRgba(config.bgColor, config.bgOpacity) }}
             onClick={() => setShowUI(!showUI)}
             title={showUI ? "点击进入纯净模式" : "点击显示控制面板"}
           >
-            {/* 隐藏UI模式下的轻量级提示 */}
             {!showUI && (
               <div className="absolute top-0 left-0 w-full h-32 z-50 group flex items-center justify-center pointer-events-none">
                 <div className="opacity-0 group-hover:opacity-100 bg-black/60 text-white px-8 py-3 rounded-full transition-opacity shadow-2xl backdrop-blur-sm font-bold tracking-widest border border-white/20">
@@ -768,7 +782,7 @@
                 {history.length === 0 && !currentTranscript && !realtimeTurn && (
                   <div className="text-gray-500 mt-10 opacity-70 font-bold tracking-wider text-2xl text-center">
                     {isListening 
-                      ? (config.engine === 'openai' ? "🌐 OpenAI 引擎已连接，等待语音输入..." : "🎙️ 正在聆听声音输入...") 
+                      ? (config.engine === 'openai' ? "🌐 OpenAI 录音切片引擎已启动，等待语音输入..." : "🎙️ 正在聆听声音输入...") 
                       : (showUI ? "点击左上角麦克风开启识别" : "点击屏幕展开面板并开启识别")}
                   </div>
                 )}
@@ -792,7 +806,7 @@
                   </div>
                 ))}
 
-                {/* [原生引擎] 当前临时句子 */}
+                {/* [原生引擎] 临时显示 */}
                 {currentTranscript && config.engine === 'native' && (
                   <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
                     <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
@@ -801,11 +815,11 @@
                   </div>
                 )}
 
-                {/* [OpenAI 引擎] 当前流式抓取输出 */}
+                {/* [OpenAI 引擎] VAD 语音切片状态提示 */}
                 {realtimeTurn && config.engine === 'openai' && (
                   <div className="w-full flex flex-col break-words tracking-wide pointer-events-auto transition-all" style={{ alignItems: config.textAlign === 'left' ? 'flex-start' : config.textAlign === 'right' ? 'flex-end' : 'center' }}>
-                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: realtimeTurn.streaming ? 0.8 : 0.4 }}>
-                      {realtimeTurn.streaming || '🎙️ 正在倾听...'}
+                    <div style={{ ...baseTextStyle, fontSize: `${config.mainFontSize}px`, color: config.mainFontColor, opacity: 0.6 }}>
+                      {realtimeTurn.streaming}
                     </div>
                   </div>
                 )}
