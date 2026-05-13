@@ -126,7 +126,7 @@
       const scrollRef = useRef(null);
       const stateRef = useRef({ 
         isListening, 
-        lastContext: "", // 新增：记忆上一句话的上下文
+        lastContext: "", // 记忆上一句话的上下文
         ...config 
       });
 
@@ -147,7 +147,7 @@
             let baseUrl = state.openaiUrl.trim().replace(/\/$/, '');
             if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', ''); 
             
-            // 组装智能 Prompt，如果存在上一句话的记忆，就让模型结合语境翻译，避免因物理断句导致的语义断层
+            // 组装智能 Prompt，结合语境翻译
             let systemContent = `You are a professional subtitle translator. Translate the user's speech to ${targetLang}. Output ONLY the translation. No quotes, no explanations.`;
             if (contextMemory) {
                systemContent += `\nHere is the previous context to help you translate more accurately: "${contextMemory}"`;
@@ -269,7 +269,7 @@
           } 
           
           // ----------------------------------------------------
-          // 引擎 2：OpenAI WebRTC Realtime (纯转写脱敏版)
+          // 引擎 2：OpenAI WebRTC Realtime (支持最新 GA 正式版接口)
           // ----------------------------------------------------
           else if (config.engine === 'openai') {
             if (!config.openaiKey) {
@@ -353,22 +353,41 @@
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
 
-                let rtcUrl = stateRef.current.openaiUrl.trim();
-                if (rtcUrl.endsWith('/v1')) rtcUrl = rtcUrl.replace('/v1', '/v1/realtime');
-                else if (!rtcUrl.endsWith('/realtime')) rtcUrl += '/realtime';
+                let baseUrl = stateRef.current.openaiUrl.trim().replace(/\/$/, '');
+                if (baseUrl.endsWith('/realtime')) baseUrl = baseUrl.replace('/realtime', '');
                 
-                const sdpResponse = await fetch(`${rtcUrl}?model=gpt-4o-realtime-preview-2024-12-17`, {
+                // 【核心修复】：GA 接口规范 - 第一步：获取 Ephemeral Token 临时令牌
+                const sessionRes = await fetch(`${baseUrl}/realtime/sessions`, {
+                  method: "POST",
+                  headers: {
+                    "Authorization": `Bearer ${stateRef.current.openaiKey}`,
+                    "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify({
+                    model: "gpt-4o-realtime-preview-2024-12-17" 
+                  })
+                });
+
+                if (!sessionRes.ok) {
+                  const errText = await sessionRes.text();
+                  throw new Error(`创建会话失败 (${sessionRes.status}): ${errText}`);
+                }
+                const sessionData = await sessionRes.json();
+                const ephemeralKey = sessionData.client_secret.value;
+
+                // 【核心修复】：GA 接口规范 - 第二步：使用临时令牌进行 WebRTC 握手
+                const sdpResponse = await fetch(`${baseUrl}/realtime`, {
                   method: "POST",
                   body: offer.sdp,
                   headers: {
-                    Authorization: `Bearer ${stateRef.current.openaiKey}`,
+                    "Authorization": `Bearer ${ephemeralKey}`,
                     "Content-Type": "application/sdp"
                   },
                 });
 
                 if (!sdpResponse.ok) {
                   const errText = await sdpResponse.text();
-                  throw new Error(`握手失败 (${sdpResponse.status}): ${errText}`);
+                  throw new Error(`WebRTC 握手失败 (${sdpResponse.status}): ${errText}`);
                 }
                 const answerSdp = await sdpResponse.text();
                 await peerConnection.setRemoteDescription({ type: "answer", sdp: answerSdp });
@@ -472,7 +491,7 @@
                   >
                     <option value="zh-CN">原文: 🇨🇳 中</option>
                     <option value="en-US">原文: 🇺🇸 英</option>
-                    <option value="ja-JP">原文: 🇯🇵 日</option>
+                    <option value="ja-JP">原文: 🇯 ঐতি 日</option>
                     <option value="ko-KR">原文: 🇰🇷 韩</option>
                     <option value="zh-TW">原文: 🌐 繁</option>
                   </select>
